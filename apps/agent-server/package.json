@@ -1,0 +1,31 @@
+{
+  "name": "@local-agent/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc --outDir dist --rootDir src",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@fastify/cors": "latest",
+    "@local-agent/contracts": "*",
+    "@modelcontextprotocol/sdk": "latest",
+    "dotenv": "latest",
+    "execa": "latest",
+    "fastify": "latest",
+    "openai": "latest",
+    "yaml": "^2.9.0",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsup": "latest",
+    "tsx": "latest",
+    "typescript": "^5.9.3",
+    "vitest": "latest"
+  }
+}
