@@ -70,7 +70,6 @@ export function registerWorkflowRoutes(
 
   app.get<{ Querystring: { sessionId?: string } }>("/api/workflow-runs/by-session", async (request, reply) => {
     if (!request.query.sessionId) return reply.code(400).send({ message: "sessionId is required" });
-    const run = workflowRuns.getBySession(request.query.sessionId);
-    return run ? run : reply.code(404).send({ message: "No workflow run for this session" });
+    return workflowRuns.getBySession(request.query.sessionId);
   });
 }

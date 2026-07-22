@@ -61,7 +61,7 @@ export function PermissionsPage() {
   const customRules = rules.data?.filter((rule) => rule.source === "custom") ?? [];
 
   return (
-    <AppShell currentSessionId={null} onSelectSession={() => {}}>
+    <AppShell>
       <section className="settings-page">
         <header className="settings-header">
           <h1>Permissions</h1>

@@ -41,7 +41,6 @@ Co-Work Agent is a locally running AI agent that interacts with users through a 
    AZURE_OPENAI_API_KEY=your-api-key
    AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
    AZURE_OPENAI_DEPLOYMENT=your-model-deployment
-   AGENT_WORKSPACE_ROOT=C:/Projects/your-workspace
    ```
 
 4. Start the web app and agent server:
@@ -69,11 +68,10 @@ The server reads `.env` from the repository root.
 | `AZURE_EMBEDDING_ENDPOINT`    | No       | OpenAI endpoint          | Separate endpoint for the embeddings deployment.           |
 | `AZURE_EMBEDDING_DEPLOYMENT`  | No       | `text-embedding-3-small` | Embeddings deployment name.                                |
 | `AZURE_EMBEDDING_API_VERSION` | No       | `2023-05-15`             | Embeddings API version.                                    |
-| `AGENT_WORKSPACE_ROOT`        | No       | Repository root          | Directory the agent is allowed to access.                  |
 | `AGENT_SERVER_PORT`           | No       | `4310`                   | Local API port.                                            |
 | `WEB_ORIGIN`                  | No       | `http://127.0.0.1:4311`  | Allowed browser origin for CORS.                           |
 
-`AGENT_WORKSPACE_ROOT` is a security boundary for file operations. Point it only at a directory that the agent is allowed to read and modify.
+The application manages projects under `workspaces/`. Each Workspace has its own physical directory and task working directory, and can contain its own Git working tree. Sessions, memories, permissions, and workflows are scoped to the same Workspace. The directory is created automatically when a Workspace is created in the web interface.
 
 ## Project Structure
 
@@ -86,7 +84,7 @@ packages/
 skill-evaluations/    Skill evaluation scenarios
 ```
 
-The web development server proxies `/api` requests to the agent server. Application state is stored in `.local/agent.db`; this directory is ignored by Git.
+The web development server proxies `/api` requests to the agent server. Application state is stored in `.local/agent.db`; managed projects are stored under `workspaces/`. Both directories are ignored by Git.
 
 ## Development
 

@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import type { PathPolicy } from "../../workspace/path-policy.js";
+import { PathPolicy } from "../../workspace/path-policy.js";
 import type { Tool } from "../tool.js";
 
 const inputSchema = z.object({
@@ -9,13 +9,14 @@ const inputSchema = z.object({
   content: z.string().max(1_000_000),
 });
 
-export function createWriteFileTool(paths: PathPolicy): Tool<z.infer<typeof inputSchema>> {
+export function createWriteFileTool(): Tool<z.infer<typeof inputSchema>> {
   return {
     name: "write_file",
     description: "Create or replace one UTF-8 file in the workspace. Requires user approval.",
     inputSchema,
     risk: "medium",
-    async execute(input) {
+    async execute(input, context) {
+      const paths = new PathPolicy(context.workspaceRoot);
       const target = paths.resolve(input.path);
       const previous = await readFile(target, "utf8").catch(() => "");
       await mkdir(path.dirname(target), { recursive: true });

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { currentSessionIdAtom } from "../../atoms/current-session-atom";
 import { currentWorkspaceIdAtom } from "../../atoms/workspace-atom";
 import { viewAtom } from "../../atoms/view-atom";
 import { createSession, createWorkspace, listSessions, listWorkspaces } from "../../api/client";
@@ -12,18 +13,24 @@ import {
   SkillsIcon,
   WorkflowIcon,
 } from "./nav-icons";
+import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 
 interface AppShellProps {
-  currentSessionId: string | null;
-  onSelectSession(sessionId: string): void;
   children: ReactNode;
 }
 
-export function AppShell({ currentSessionId, onSelectSession, children }: AppShellProps) {
+export function AppShell({ children }: AppShellProps) {
   const queryClient = useQueryClient();
   const [view, setView] = useAtom(viewAtom);
   const [workspaceId, setWorkspaceId] = useAtom(currentWorkspaceIdAtom);
-  const workspaces = useQuery({ queryKey: ["workspaces"], queryFn: listWorkspaces });
+  const [currentSessionId, setCurrentSessionId] = useAtom(currentSessionIdAtom);
+  const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
+  const workspaces = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: listWorkspaces,
+    retry: 5,
+    retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 5_000),
+  });
 
   useEffect(() => {
     if (!workspaceId && workspaces.data && workspaces.data.length > 0) {
@@ -40,17 +47,23 @@ export function AppShell({ currentSessionId, onSelectSession, children }: AppShe
   const createWorkspaceMutation = useMutation({
     mutationFn: createWorkspace,
     onSuccess: async (created) => {
+      setCurrentSessionId(null);
       setWorkspaceId(created.id);
+      setWorkspaceDialogOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["workspaces"] });
     },
     onError: (error) => console.error("[shell] createWorkspace failed", error),
   });
 
+  const createWorkspaceError = createWorkspaceMutation.isError
+    ? createWorkspaceMutation.error instanceof Error ? createWorkspaceMutation.error.message : "创建 Workspace 失败"
+    : null;
+
   const createSessionMutation = useMutation({
     mutationFn: () => createSession(workspaceId!),
     onSuccess: async (created) => {
+      setCurrentSessionId(created.id);
       setView("chat");
-      onSelectSession(created.id);
       await queryClient.invalidateQueries({ queryKey: ["sessions", workspaceId] });
     },
     onError: (error) => {
@@ -66,25 +79,35 @@ export function AppShell({ currentSessionId, onSelectSession, children }: AppShe
           <h1>Co-Work Agent</h1>
         </header>
 
-        <label className="workspace-select">
-          Workspace
+        <div className="workspace-select">
+          <span>Workspace</span>
           <select
             value={workspaceId ?? ""}
             onChange={(event) => {
               if (event.target.value === "__new__") {
-                const name = window.prompt("新建 Workspace 名称");
-                if (name && name.trim()) createWorkspaceMutation.mutate({ name: name.trim() });
+                event.target.value = workspaceId ?? "";
+                createWorkspaceMutation.reset();
+                setWorkspaceDialogOpen(true);
                 return;
               }
+              setCurrentSessionId(null);
               setWorkspaceId(event.target.value);
             }}
           >
             {workspaces.data?.map((workspace) => (
               <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
             ))}
-            <option value="__new__">+ 新建 Workspace…</option>
+            <option value="__new__">+ New workspace</option>
           </select>
-        </label>
+          {workspaces.isPending && <span className="workspace-status">正在连接 Agent Server…</span>}
+          {workspaces.isError && (
+            <span className="workspace-error">
+              无法连接 Agent Server。
+              <button type="button" className="text-button" onClick={() => void workspaces.refetch()}>重试</button>
+            </span>
+          )}
+          {createWorkspaceError && <span className="workspace-error">{createWorkspaceError}</span>}
+        </div>
 
         <nav className="nav-primary">
           <button className="nav-item" disabled={!workspaceId} onClick={() => createSessionMutation.mutate()}>
@@ -128,8 +151,8 @@ export function AppShell({ currentSessionId, onSelectSession, children }: AppShe
               className={view === "chat" && item.id === currentSessionId ? "session active" : "session"}
               key={item.id}
               onClick={() => {
+                setCurrentSessionId(item.id);
                 setView("chat");
-                onSelectSession(item.id);
               }}
             >
               {item.title.startsWith("Workflow:") && <WorkflowIcon />}
@@ -139,6 +162,15 @@ export function AppShell({ currentSessionId, onSelectSession, children }: AppShe
         </nav>
       </aside>
       {children}
+      <CreateWorkspaceDialog
+        open={workspaceDialogOpen}
+        pending={createWorkspaceMutation.isPending}
+        error={createWorkspaceError}
+        onClose={() => {
+          if (!createWorkspaceMutation.isPending) setWorkspaceDialogOpen(false);
+        }}
+        onSubmit={(name) => createWorkspaceMutation.mutate({ name })}
+      />
     </main>
   );
 }

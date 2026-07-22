@@ -92,7 +92,7 @@ export function McpServersPage() {
       : { type: "http", name: name.trim(), url: url.trim(), enabled: true };
 
   return (
-    <AppShell currentSessionId={null} onSelectSession={() => {}}>
+    <AppShell>
       <section className="settings-page">
         <header className="settings-header">
           <h1>MCP Servers</h1>

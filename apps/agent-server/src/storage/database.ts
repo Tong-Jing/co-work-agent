@@ -15,6 +15,7 @@ export function createDatabase(databasePath: string) {
     CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      directory_name TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL
     );
 
@@ -137,6 +138,22 @@ export function createDatabase(databasePath: string) {
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_id, created_at);
   `);
 
+  const workspaceColumns = database.prepare("PRAGMA table_info(workspaces)").all() as Array<{ name: string }>;
+  if (!workspaceColumns.some((column) => column.name === "directory_name")) {
+    database.exec("ALTER TABLE workspaces ADD COLUMN directory_name TEXT");
+    const existingWorkspaces = database.prepare("SELECT id, name FROM workspaces ORDER BY created_at").all() as unknown as Array<{ id: string; name: string }>;
+    const usedNames = new Set<string>();
+    for (const [index, workspace] of existingWorkspaces.entries()) {
+      const baseName = index === 0 ? "default-workspace" : toDirectoryName(workspace.name);
+      let directoryName = baseName;
+      let suffix = 2;
+      while (usedNames.has(directoryName)) directoryName = `${baseName}-${suffix++}`;
+      usedNames.add(directoryName);
+      database.prepare("UPDATE workspaces SET directory_name = ? WHERE id = ?").run(directoryName, workspace.id);
+    }
+  }
+  database.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_directory_name ON workspaces(directory_name)");
+
   const messageColumns = database.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
   if (!messageColumns.some((column) => column.name === "run_id")) {
     database.exec("ALTER TABLE messages ADD COLUMN run_id TEXT");
@@ -240,7 +257,17 @@ function ensureDefaultWorkspace(database: DatabaseSync): string {
 
   const id = randomUUID();
   database
-    .prepare("INSERT INTO workspaces (id, name, created_at) VALUES (?, ?, ?)")
-    .run(id, DEFAULT_WORKSPACE_NAME, new Date().toISOString());
+    .prepare("INSERT INTO workspaces (id, name, directory_name, created_at) VALUES (?, ?, ?, ?)")
+    .run(id, DEFAULT_WORKSPACE_NAME, "default-workspace", new Date().toISOString());
   return id;
+}
+
+function toDirectoryName(name: string): string {
+  const normalized = name
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return normalized || "workspace";
 }

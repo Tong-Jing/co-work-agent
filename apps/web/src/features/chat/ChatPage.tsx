@@ -2,9 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { currentSessionIdAtom } from "../../atoms/current-session-atom";
 import { activeRunAtom, appendRunEventAtom } from "../../atoms/run-atoms";
 import { currentWorkspaceIdAtom } from "../../atoms/workspace-atom";
-import { pendingSessionSelectionAtom } from "../../atoms/pending-session-atom";
 import {
   cancelRun,
   createSession,
@@ -37,22 +37,10 @@ function StopIcon() {
 export function ChatPage() {
   const queryClient = useQueryClient();
   const workspaceId = useAtomValue(currentWorkspaceIdAtom);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [currentSessionId, setCurrentSessionId] = useAtom(currentSessionIdAtom);
   const [input, setInput] = useState("");
   const [activeRun, setActiveRun] = useAtom(activeRunAtom);
   const appendEvent = useSetAtom(appendRunEventAtom);
-  const [pendingSessionId, setPendingSessionId] = useAtom(pendingSessionSelectionAtom);
-
-  useEffect(() => {
-    setCurrentSessionId(null);
-  }, [workspaceId]);
-
-  useEffect(() => {
-    if (!pendingSessionId) return;
-    setCurrentSessionId(pendingSessionId);
-    setActiveRun({ runId: null, status: "idle", response: "", events: [] });
-    setPendingSessionId(null);
-  }, [pendingSessionId, setActiveRun, setPendingSessionId]);
 
   const session = useQuery({
     queryKey: ["session", currentSessionId],
@@ -65,6 +53,7 @@ export function ChatPage() {
     queryFn: () => getWorkflowRunBySession(currentSessionId!),
     enabled: Boolean(currentSessionId),
     refetchInterval: (query) => {
+      if (query.state.data === null) return false;
       const status = query.state.data?.status;
       return status === "waiting-input" || status === "completed" || status === "failed" || status === "cancelled" ? false : 3000;
     },
@@ -153,23 +142,26 @@ export function ChatPage() {
   };
 
   return (
-    <AppShell currentSessionId={currentSessionId} onSelectSession={setCurrentSessionId}>
+    <AppShell>
       <section className="chat">
         <div className="messages">
           {(() => {
             const messages = session.data?.messages ?? [];
             const persistedRuns = session.data?.runs ?? [];
+            const renderedRunIds = new Set<string>();
             return messages.map((message) => {
               const isActiveRun = message.runId !== null && message.runId === activeRun.runId;
               const persisted = message.runId
                 ? persistedRuns.find((run) => run.runId === message.runId)
                 : undefined;
               const events = isActiveRun ? activeRun.events : persisted?.events ?? [];
+              const showTimeline = message.runId !== null && !renderedRunIds.has(message.runId) && events.length > 0;
+              if (message.runId !== null) renderedRunIds.add(message.runId);
 
               return (
                 <div key={message.id}>
                   <MessageBubble role={message.role} content={message.content} />
-                  {message.runId !== null && events.length > 0 && (
+                  {showTimeline && (
                     <RunTimeline
                       events={events}
                       onDecision={(callId, decision) => void decideToolCall(callId, decision)}

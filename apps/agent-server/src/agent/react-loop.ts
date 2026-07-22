@@ -17,15 +17,17 @@ interface ReactLoopDependencies {
   runs: RunService;
   sessions: SessionService;
   autoMemories: AutoMemoryRepository;
-  workspaceRoot: string;
+  workspaceRoot?: string;
 }
 
 export class ReactLoop {
   constructor(private readonly dependencies: ReactLoopDependencies) {}
 
-  async run(config: AgentConfig, runId: string, workspaceId: string, messages: LlmMessage[], allowedTools: string[] | null = null) {
+  async run(config: AgentConfig, runId: string, workspaceId: string, messages: LlmMessage[], allowedTools: string[] | null = null, workspaceRoot?: string) {
     const run = this.dependencies.runs.get(runId);
     if (!run) throw new Error("Run not found");
+    const activeWorkspaceRoot = workspaceRoot ?? this.dependencies.workspaceRoot;
+    if (!activeWorkspaceRoot) throw new Error("Workspace root is required");
 
     console.log(`[react-loop] run started runId=${runId} sessionId=${run.sessionId} initialMessages=${messages.length} allowedTools=${allowedTools ? allowedTools.join(",") : "all"}`);
     const workingMemory = new WorkingMemory();
@@ -114,7 +116,7 @@ export class ReactLoop {
           }
 
           const result = await tool.execute(input, {
-            workspaceRoot: this.dependencies.workspaceRoot,
+            workspaceRoot: activeWorkspaceRoot,
             signal: run.controller.signal,
           });
           console.log(`[react-loop] tool completed runId=${runId} tool=${tool.name} callId=${call.id}`);

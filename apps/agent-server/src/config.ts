@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 import { z } from "zod";
 
@@ -15,7 +16,6 @@ const configSchema = z.object({
   AZURE_EMBEDDING_ENDPOINT: z.string().url().optional(),
   AZURE_EMBEDDING_DEPLOYMENT: z.string().min(1).default("text-embedding-3-small"),
   AZURE_EMBEDDING_API_VERSION: z.string().default("2023-05-15"),
-  AGENT_WORKSPACE_ROOT: z.string().default(path.resolve(process.cwd(), "../..")),
   AGENT_SERVER_PORT: z.coerce.number().int().positive().default(4310),
   WEB_ORIGIN: z.string().url().default("http://127.0.0.1:4311"),
 });
@@ -23,6 +23,7 @@ const configSchema = z.object({
 const parsed = configSchema.safeParse(process.env);
 
 const configError = parsed.success ? null : parsed.error;
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
 export const appConfig = parsed.success
   ? {
@@ -38,7 +39,7 @@ export const appConfig = parsed.success
         deployment: parsed.data.AZURE_EMBEDDING_DEPLOYMENT,
         apiVersion: parsed.data.AZURE_EMBEDDING_API_VERSION,
       },
-      workspaceRoot: path.resolve(parsed.data.AGENT_WORKSPACE_ROOT),
+      workspacesRoot: path.join(repositoryRoot, "workspaces"),
       port: parsed.data.AGENT_SERVER_PORT,
       webOrigin: parsed.data.WEB_ORIGIN,
     }

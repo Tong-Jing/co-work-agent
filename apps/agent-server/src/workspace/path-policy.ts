@@ -1,6 +1,6 @@
 import path from "node:path";
 
-const deniedSegments = new Set([".git", ".ssh", "node_modules"]);
+const deniedSegments = new Set([".co-work", ".git", ".ssh", "node_modules"]);
 const deniedNames = new Set([".env", ".npmrc"]);
 
 export class PathPolicy {

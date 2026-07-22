@@ -3,6 +3,7 @@ import { z } from "zod";
 export const workspaceSchema = z.object({
   id: z.string(),
   name: z.string(),
+  directoryName: z.string(),
   createdAt: z.string(),
 });
 

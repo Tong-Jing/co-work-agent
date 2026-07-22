@@ -115,7 +115,7 @@ export function SkillsPage() {
   const custom = skills.data?.filter((skill) => skill.source === "custom") ?? [];
 
   return (
-    <AppShell currentSessionId={null} onSelectSession={() => {}}>
+    <AppShell>
       <section className="settings-page">
         <header className="settings-header">
           <h1>Skills</h1>

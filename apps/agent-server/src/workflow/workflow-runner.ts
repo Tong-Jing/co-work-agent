@@ -8,10 +8,12 @@ import type { WorkflowRunRepository } from "./workflow-run-repository.js";
 import type { WorkflowRepository } from "./workflow-repository.js";
 import type { WorkflowDefinition, WorkflowNode, WorkflowNodeState, WorkflowRun } from "@local-agent/contracts";
 import { coerceTemplateValue, renderTemplate } from "./template.js";
+import type { WorkspaceService } from "../workspace/workspace-service.js";
 
 interface WorkflowRunnerDependencies {
   agent: Agent;
-  workspaceRoot: string;
+  workspaces?: WorkspaceService;
+  workspaceRoot?: string;
   tools: ToolRegistry;
   permissions: PermissionService;
   approvals: ApprovalService;
@@ -179,7 +181,11 @@ export class WorkflowRunner {
       if (decision === "deny") throw new Error(`User denied tool execution: ${tool.name}`);
     }
 
-    const result = await tool.execute(input, { workspaceRoot: this.dependencies.workspaceRoot, signal: agentRun.controller.signal });
+    const workspaceRoot = this.dependencies.workspaces
+      ? await this.dependencies.workspaces.resolve(workspaceId)
+      : this.dependencies.workspaceRoot;
+    if (!workspaceRoot) throw new Error("Workspace root is required");
+    const result = await tool.execute(input, { workspaceRoot, signal: agentRun.controller.signal });
     this.dependencies.runs.emit(agentRun.id, { type: "tool.completed", callId, tool: tool.name, result: result.content, summary: result.summary });
     return result.content;
   }

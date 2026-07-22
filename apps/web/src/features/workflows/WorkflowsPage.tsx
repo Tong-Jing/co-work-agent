@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import type { CreateWorkflowRequest, WorkflowDefinition, WorkflowNode } from "@local-agent/contracts";
+import { currentSessionIdAtom } from "../../atoms/current-session-atom";
 import { currentWorkspaceIdAtom } from "../../atoms/workspace-atom";
-import { pendingSessionSelectionAtom } from "../../atoms/pending-session-atom";
 import { viewAtom } from "../../atoms/view-atom";
 import {
   createWorkflow,
@@ -195,7 +195,7 @@ export function WorkflowsPage() {
   const queryClient = useQueryClient();
   const workspaceId = useAtomValue(currentWorkspaceIdAtom);
   const setView = useSetAtom(viewAtom);
-  const setPendingSessionId = useSetAtom(pendingSessionSelectionAtom);
+  const setCurrentSessionId = useSetAtom(currentSessionIdAtom);
 
   const workflows = useQuery({
     queryKey: ["workflows", workspaceId],
@@ -248,7 +248,7 @@ export function WorkflowsPage() {
   const runMutation = useMutation({
     mutationFn: (id: string) => startWorkflowRun(id),
     onSuccess: async ({ sessionId }) => {
-      setPendingSessionId(sessionId);
+      setCurrentSessionId(sessionId);
       setView("chat");
       await queryClient.invalidateQueries({ queryKey: ["sessions", workspaceId] });
     },
@@ -290,7 +290,7 @@ export function WorkflowsPage() {
   const canSubmit = name.trim() && nodes.length > 0 && nodes.every((node) => node.outputVariable.trim());
 
   return (
-    <AppShell currentSessionId={null} onSelectSession={() => {}}>
+    <AppShell>
       <section className="settings-page">
         <header className="settings-header">
           <h1>Workflow</h1>

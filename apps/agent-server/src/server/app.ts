@@ -69,7 +69,7 @@ interface BuildAppOptions {
     deployment: string;
     apiVersion: string;
   };
-  workspaceRoot: string;
+  workspacesRoot: string;
   webOrigin: string;
   databasePath?: string;
 }
@@ -78,10 +78,10 @@ export async function buildApp(options: BuildAppOptions) {
   const app = Fastify();
   await app.register(cors, { origin: options.webOrigin, methods: ["GET", "POST"] });
 
-  const workspace = new WorkspaceService(options.workspaceRoot);
-  await workspace.verify();
   const database = createDatabase(options.databasePath ?? path.resolve(process.cwd(), "../../.local/agent.db"));
   const workspaceRepository = new WorkspaceRepository(database);
+  const workspace = new WorkspaceService(options.workspacesRoot, workspaceRepository);
+  await workspace.verify();
   const sessions = new SessionService(database);
   const runs = new RunService(database);
   const approvals = new ApprovalService();
@@ -91,10 +91,10 @@ export async function buildApp(options: BuildAppOptions) {
 
   const tools = new ToolRegistry();
   tools.registerAll([
-    createListFilesTool(workspace.paths),
-    createSearchFilesTool(workspace.paths),
-    createReadFileTool(workspace.paths),
-    createWriteFileTool(workspace.paths),
+    createListFilesTool(),
+    createSearchFilesTool(),
+    createReadFileTool(),
+    createWriteFileTool(),
     createRunTaskTool(),
     ...createGitTools(),
   ]);
@@ -142,16 +142,15 @@ export async function buildApp(options: BuildAppOptions) {
     runs,
     sessions,
     autoMemories: autoMemoryRepository,
-    workspaceRoot: workspace.root,
   });
-  const agent = new Agent(defaultAgentConfig, contextBuilder, loop, runs, workspace.root);
+  const agent = new Agent(defaultAgentConfig, contextBuilder, loop, runs, workspace);
   const runController = new RunController(agent, runs, sessions);
 
   const workflowRepository = new WorkflowRepository(database);
   const workflowRunRepository = new WorkflowRunRepository(database);
   const workflowRunner = new WorkflowRunner({
     agent,
-    workspaceRoot: workspace.root,
+    workspaces: workspace,
     tools,
     permissions: permissionService,
     approvals,
@@ -166,8 +165,8 @@ export async function buildApp(options: BuildAppOptions) {
     console.log(`[http] ${request.method} ${request.url}`);
   });
 
-  app.get("/api/health", async () => ({ status: "ok", workspaceRoot: workspace.root }));
-  registerWorkspaceRoutes(app, workspaceRepository);
+  app.get("/api/health", async () => ({ status: "ok", workspacesRoot: workspace.root }));
+  registerWorkspaceRoutes(app, workspace);
   registerSessionRoutes(app, sessions, runs, runController);
   registerRunRoutes(app, runs, runController);
   registerApprovalRoutes(app, approvals);

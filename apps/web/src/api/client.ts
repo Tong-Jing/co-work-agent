@@ -271,8 +271,7 @@ export async function resumeWorkflowRun(runId: string, answer: string) {
 }
 
 export async function getWorkflowRunBySession(sessionId: string) {
-  const response = await fetch(`/api/workflow-runs/by-session?sessionId=${encodeURIComponent(sessionId)}`);
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`Failed to load workflow run for session: ${response.statusText}`);
-  return workflowRunSchema.parse(await response.json());
+  return workflowRunSchema.nullable().parse(
+    await request(`/api/workflow-runs/by-session?sessionId=${encodeURIComponent(sessionId)}`),
+  );
 }
