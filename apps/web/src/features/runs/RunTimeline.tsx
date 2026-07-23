@@ -86,6 +86,7 @@ export function RunTimeline({ events, onDecision }: RunTimelineProps) {
             )}
             {event.type === "tool.requested" && <p>{event.summary}</p>}
             {event.type === "tool.completed" && <p>{event.summary}</p>}
+            {event.type === "tool.failed" && <p>{event.summary}</p>}
             {event.type === "tool.denied" && <p>{event.reason}</p>}
             {event.type === "run.failed" && <p>{event.message}</p>}
             {event.type === "approval.required" && (
@@ -148,6 +149,7 @@ function labelFor(event: AgentEvent) {
     case "tool.requested": return event.source === "mcp" ? `Tool Use (MCP) · ${event.tool}` : `Tool Use · ${event.tool}`;
     case "approval.required": return `Approval Required · ${event.tool}`;
     case "tool.completed": return `Tool Result · ${event.tool}`;
+    case "tool.failed": return `Tool Failed · ${event.tool}`;
     case "tool.denied": return `Tool Denied · ${event.tool}`;
     case "file.diff": return `File Diff · ${event.path}`;
     case "run.completed": return "Run Completed";
@@ -165,6 +167,7 @@ function detailsFor(event: AgentEvent): string | null {
     }
   }
   if (event.type === "tool.completed") return event.result;
+  if (event.type === "tool.failed") return event.error;
   if (event.type === "file.diff") return event.patch;
   return null;
 }

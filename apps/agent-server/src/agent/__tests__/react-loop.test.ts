@@ -116,6 +116,63 @@ describe("ReactLoop", () => {
     expect(autoMemories.add).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    {
+      name: "malformed JSON arguments",
+      arguments: "{not-json",
+      tool: makeEchoTool(),
+      expectedError: "JSON",
+    },
+    {
+      name: "arguments that fail schema validation",
+      arguments: JSON.stringify({ text: 42 }),
+      tool: makeEchoTool(),
+      expectedError: "string",
+    },
+    {
+      name: "an exception thrown by the tool",
+      arguments: JSON.stringify({ text: "missing/path" }),
+      tool: makeEchoTool({
+        execute: vi.fn(async () => {
+          throw new Error("ENOENT: no such file or directory");
+        }),
+      }),
+      expectedError: "ENOENT",
+    },
+  ])("recovers from $name and feeds the failure back to the LLM", async ({ arguments: toolArguments, tool, expectedError }) => {
+    let call = 0;
+    const llm: LlmProvider = {
+      complete: vi.fn(async (request): Promise<LlmResponse> => {
+        call += 1;
+        if (call === 1) {
+          return {
+            id: "r1",
+            content: null,
+            toolCalls: [{ id: "call-1", name: "echo", arguments: toolArguments }],
+          };
+        }
+        expect(request.messages.at(-1)).toEqual(expect.objectContaining({
+          role: "tool",
+          toolCallId: "call-1",
+          content: expect.stringContaining(expectedError),
+        }));
+        return { id: "r2", content: "recovered", toolCalls: [] };
+      }),
+    };
+    const { loop, run, sessions } = buildLoop({ llm, tool });
+
+    await loop.run(defaultAgentConfig, run.id, "workspace-1", [{ role: "user", content: "try the tool" }]);
+
+    expect(run.emit).toHaveBeenCalledWith(run.id, expect.objectContaining({
+      type: "tool.failed",
+      tool: "echo",
+      error: expect.stringContaining(expectedError),
+    }));
+    expect(run.emit).toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "run.completed" }));
+    expect(run.emit).not.toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "run.failed" }));
+    expect(sessions.addMessage).toHaveBeenCalledWith(run.sessionId, "assistant", "recovered", run.id);
+  });
+
   it("requires approval for a risky tool and skips execution when denied", async () => {
     const riskyTool = makeEchoTool({ risk: "high" });
     let call = 0;

@@ -66,8 +66,6 @@ export class ReactLoop {
             continue;
           }
 
-          const parsedArguments: unknown = JSON.parse(call.arguments);
-          const input = tool.inputSchema.parse(parsedArguments);
           console.log(`[react-loop] tool requested runId=${runId} tool=${tool.name} callId=${call.id}`);
           this.dependencies.runs.emit(runId, {
             type: "tool.requested",
@@ -79,56 +77,75 @@ export class ReactLoop {
             summary: `Calling ${tool.name}`,
           });
 
-          const evaluation = this.dependencies.permissions.evaluate(tool, input, workspaceId);
-          if (evaluation.decision === "deny") {
-            console.log(`[react-loop] tool denied by rule runId=${runId} tool=${tool.name} callId=${call.id} rule=${evaluation.matchedRuleId}`);
-            const reason = `Denied by permission rule${evaluation.matchedRuleId ? ` (${evaluation.matchedRuleId})` : ""}: ${tool.name}`;
-            this.dependencies.runs.emit(runId, {
-              type: "tool.denied",
-              callId: call.id,
-              tool: tool.name,
-              reason,
-              matchedRuleId: evaluation.matchedRuleId,
-            });
-            toolResults.push({ role: "tool", toolCallId: call.id, content: reason });
-            workingMemory.addObservation({ tool: tool.name, summary: reason, succeeded: false });
-            continue;
-          }
-
-          if (evaluation.requiresApproval) {
-            console.log(`[react-loop] approval required runId=${runId} tool=${tool.name} callId=${call.id}`);
-            this.dependencies.runs.emit(runId, {
-              type: "approval.required",
-              callId: call.id,
-              tool: tool.name,
-              summary: `${tool.name}: ${JSON.stringify(input).slice(0, 1000)}`,
-              risk: this.dependencies.permissions.displayRisk(tool.risk),
-              matchedRuleId: evaluation.matchedRuleId,
-            });
-            const decision = await this.dependencies.approvals.wait(call.id, runId, run.controller.signal);
-            console.log(`[react-loop] approval decision runId=${runId} callId=${call.id} decision=${decision}`);
-            if (decision === "deny") {
-              const observation = `User denied tool execution: ${tool.name}`;
-              toolResults.push({ role: "tool", toolCallId: call.id, content: observation });
-              workingMemory.addObservation({ tool: tool.name, summary: observation, succeeded: false });
+          try {
+            const parsedArguments: unknown = JSON.parse(call.arguments);
+            const input = tool.inputSchema.parse(parsedArguments);
+            const evaluation = this.dependencies.permissions.evaluate(tool, input, workspaceId);
+            if (evaluation.decision === "deny") {
+              console.log(`[react-loop] tool denied by rule runId=${runId} tool=${tool.name} callId=${call.id} rule=${evaluation.matchedRuleId}`);
+              const reason = `Denied by permission rule${evaluation.matchedRuleId ? ` (${evaluation.matchedRuleId})` : ""}: ${tool.name}`;
+              this.dependencies.runs.emit(runId, {
+                type: "tool.denied",
+                callId: call.id,
+                tool: tool.name,
+                reason,
+                matchedRuleId: evaluation.matchedRuleId,
+              });
+              toolResults.push({ role: "tool", toolCallId: call.id, content: reason });
+              workingMemory.addObservation({ tool: tool.name, summary: reason, succeeded: false });
               continue;
             }
-          }
 
-          const result = await tool.execute(input, {
-            workspaceRoot: activeWorkspaceRoot,
-            signal: run.controller.signal,
-          });
-          console.log(`[react-loop] tool completed runId=${runId} tool=${tool.name} callId=${call.id}`);
-          toolResults.push({ role: "tool", toolCallId: call.id, content: result.content });
-          workingMemory.addObservation({ tool: tool.name, summary: result.summary, succeeded: true });
-          this.dependencies.runs.emit(runId, {
-            type: "tool.completed",
-            callId: call.id,
-            tool: tool.name,
-            result: result.content,
-            summary: result.summary,
-          });
+            if (evaluation.requiresApproval) {
+              console.log(`[react-loop] approval required runId=${runId} tool=${tool.name} callId=${call.id}`);
+              this.dependencies.runs.emit(runId, {
+                type: "approval.required",
+                callId: call.id,
+                tool: tool.name,
+                summary: `${tool.name}: ${JSON.stringify(input).slice(0, 1000)}`,
+                risk: this.dependencies.permissions.displayRisk(tool.risk),
+                matchedRuleId: evaluation.matchedRuleId,
+              });
+              const decision = await this.dependencies.approvals.wait(call.id, runId, run.controller.signal);
+              console.log(`[react-loop] approval decision runId=${runId} callId=${call.id} decision=${decision}`);
+              if (decision === "deny") {
+                const observation = `User denied tool execution: ${tool.name}`;
+                toolResults.push({ role: "tool", toolCallId: call.id, content: observation });
+                workingMemory.addObservation({ tool: tool.name, summary: observation, succeeded: false });
+                continue;
+              }
+            }
+
+            const result = await tool.execute(input, {
+              workspaceRoot: activeWorkspaceRoot,
+              signal: run.controller.signal,
+            });
+            console.log(`[react-loop] tool completed runId=${runId} tool=${tool.name} callId=${call.id}`);
+            toolResults.push({ role: "tool", toolCallId: call.id, content: result.content });
+            workingMemory.addObservation({ tool: tool.name, summary: result.summary, succeeded: true });
+            this.dependencies.runs.emit(runId, {
+              type: "tool.completed",
+              callId: call.id,
+              tool: tool.name,
+              result: result.content,
+              summary: result.summary,
+            });
+          } catch (error) {
+            if (run.controller.signal.aborted) throw error;
+
+            const message = error instanceof Error ? error.message : "Unknown tool error";
+            const observation = `Tool ${tool.name} failed: ${message}`;
+            console.warn(`[react-loop] tool failed runId=${runId} tool=${tool.name} callId=${call.id}`, error);
+            toolResults.push({ role: "tool", toolCallId: call.id, content: observation });
+            workingMemory.addObservation({ tool: tool.name, summary: observation, succeeded: false });
+            this.dependencies.runs.emit(runId, {
+              type: "tool.failed",
+              callId: call.id,
+              tool: tool.name,
+              error: message,
+              summary: observation,
+            });
+          }
         }
 
         conversation.push(...toolResults);
