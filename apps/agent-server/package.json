@@ -17,6 +17,7 @@
     "dotenv": "latest",
     "execa": "latest",
     "fastify": "latest",
+    "gpt-tokenizer": "^3.4.0",
     "openai": "latest",
     "yaml": "^2.9.0",
     "zod": "latest"

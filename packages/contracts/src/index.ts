@@ -34,9 +34,17 @@ export const agentEventSchema = z.discriminatedUnion("type", [
     memoryCount: z.number(),
     skillCount: z.number(),
     historyCount: z.number(),
+    estimatedTokens: z.number().optional(),
+    maxTokens: z.number().optional(),
+    omittedMessages: z.number().optional(),
+    messageTokens: z.number().optional(),
+    toolDefinitionTokens: z.number().optional(),
+    maxOutputTokens: z.number().optional(),
     sequence: z.number(),
   }),
   z.object({ type: z.literal("status"), label: z.string(), sequence: z.number() }),
+  z.object({ type: z.literal("reasoning.started"), iteration: z.number(), estimatedTokens: z.number(), omittedMessages: z.number(), sequence: z.number() }),
+  z.object({ type: z.literal("reasoning.completed"), iteration: z.number(), decision: z.enum(["tool_calls", "final_response"]), toolCallCount: z.number(), sequence: z.number() }),
   z.object({ type: z.literal("message.delta"), text: z.string(), sequence: z.number() }),
   z.object({ type: z.literal("workflow.node.started"), workflowRunId: z.string(), nodeId: z.string(), label: z.string(), sequence: z.number() }),
   z.object({ type: z.literal("workflow.node.completed"), workflowRunId: z.string(), nodeId: z.string(), label: z.string(), sequence: z.number() }),
@@ -93,6 +101,7 @@ export const agentEventSchema = z.discriminatedUnion("type", [
 
 export const runEventLogSchema = z.object({
   runId: z.string(),
+  status: z.enum(["created", "running", "completed", "failed", "cancelled", "interrupted"]),
   events: z.array(agentEventSchema),
 });
 
@@ -319,7 +328,7 @@ export const workflowRunSchema = z.object({
   workflowId: z.string(),
   sessionId: z.string(),
   rootRunId: z.string().nullable().optional(),
-  status: z.enum(["running", "waiting-input", "completed", "failed", "cancelled"]),
+  status: z.enum(["running", "waiting-input", "completed", "failed", "cancelled", "interrupted"]),
   currentNodeId: z.string().nullable(),
   nodeStates: z.record(z.string(), workflowNodeStateSchema),
   variables: z.record(z.string(), z.string()),

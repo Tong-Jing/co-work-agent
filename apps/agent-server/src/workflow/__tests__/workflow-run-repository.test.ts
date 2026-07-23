@@ -13,7 +13,7 @@ function setup() {
 
   const workflows = new WorkflowRepository(database);
   const workflow = workflows.add({ workspaceId, name: "Test", description: "", version: "1.0.0", nodes: [] });
-  return { repository: new WorkflowRunRepository(database), workflowId: workflow.id, sessionId };
+  return { database, repository: new WorkflowRunRepository(database), workflowId: workflow.id, sessionId };
 }
 
 describe("WorkflowRunRepository", () => {
@@ -51,6 +51,18 @@ describe("WorkflowRunRepository", () => {
     });
 
     expect(repository.get(run.id)).toEqual(updated);
+  });
+
+  it("marks running workflows interrupted after a service restart", () => {
+    const { database, repository, workflowId, sessionId } = setup();
+    const running = repository.create(workflowId, sessionId);
+
+    const restarted = new WorkflowRunRepository(database);
+
+    expect(restarted.get(running.id)).toEqual(expect.objectContaining({
+      status: "interrupted",
+      errorMessage: "Service restarted during workflow execution",
+    }));
   });
 
   it("lists runs for a workflow ordered by most recent first", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LlmMessage } from "../../llm/llm-types.js";
-import { applyContextBudget, estimateTokens, truncateToolResult } from "../context-budget.js";
+import { applyContextBudget, ContextBudgetExceededError, estimateTokens, truncateToolResult } from "../context-budget.js";
 
 describe("applyContextBudget", () => {
   it("keeps system instructions and recent messages while dropping old history", () => {
@@ -23,28 +23,42 @@ describe("applyContextBudget", () => {
       { role: "assistant", content: null, toolCalls: [{ id: "call-1", name: "read_file", arguments: "{}" }] },
       { role: "tool", toolCallId: "call-1", content: "result" },
     ];
-    const result = applyContextBudget([{ role: "user", content: "x".repeat(1000) }, ...pair], 20);
+    const result = applyContextBudget([
+      { role: "user", content: "old".repeat(1000) },
+      { role: "assistant", content: "old answer".repeat(1000) },
+      { role: "user", content: "inspect the workspace" },
+      ...pair,
+    ], 50);
 
     expect(result.messages.slice(-2)).toEqual(pair);
+    expect(result.omittedMessages).toBe(2);
   });
 
-  it("truncates a single oversized current message to the configured budget", () => {
-    const result = applyContextBudget([
+  it("rejects an oversized current message instead of silently truncating it", () => {
+    expect(() => applyContextBudget([
       { role: "system", content: "instructions" },
       { role: "user", content: "x".repeat(10_000) },
-    ], 100);
+    ], 100)).toThrow(ContextBudgetExceededError);
+  });
 
-    expect(estimateTokens(result.messages)).toBeLessThanOrEqual(100);
-    const latest = result.messages.at(-1);
-    expect(latest?.role).toBe("user");
-    expect(latest?.role === "user" ? latest.content.length : 10_000).toBeLessThan(10_000);
+  it("counts tool definitions inside the input budget", () => {
+    const result = applyContextBudget(
+      [{ role: "user", content: "inspect the workspace" }],
+      100,
+      [{ type: "function", function: { name: "read_file", description: "Read a workspace file", parameters: { type: "object", properties: { path: { type: "string" } } } } }],
+    );
+
+    expect(result.toolDefinitionTokens).toBeGreaterThan(0);
+    expect(result.estimatedTokens).toBe(result.messageTokens + result.toolDefinitionTokens);
   });
 });
 
 describe("truncateToolResult", () => {
   it("truncates oversized tool output and reports the omitted size", () => {
-    const result = truncateToolResult("x".repeat(100), 10);
-    expect(result).toContain("x".repeat(40));
-    expect(result).toContain("60 characters omitted");
+    const content = Array.from({ length: 100 }, (_, index) => `token-${index}`).join(" ");
+    const result = truncateToolResult(content, 30);
+    expect(result.startsWith("token-0")).toBe(true);
+    expect(result).toMatch(/token-99\s*$/);
+    expect(result).toContain("tokens omitted");
   });
 });

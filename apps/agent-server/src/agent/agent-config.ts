@@ -3,6 +3,7 @@ export interface AgentConfig {
   systemInstructions: string;
   maxIterations: number;
   maxContextTokens: number;
+  maxOutputTokens: number;
   maxToolResultTokens: number;
   modelTimeoutMs: number;
   toolTimeoutMs: number;
@@ -16,7 +17,8 @@ export interface AgentConfig {
 export const defaultAgentConfig: AgentConfig = {
   name: "Local Coding Agent",
   maxIterations: 15,
-  maxContextTokens: 64_000,
+  maxContextTokens: 128_000,
+  maxOutputTokens: 32_768,
   maxToolResultTokens: 8_000,
   modelTimeoutMs: 120_000,
   toolTimeoutMs: 60_000,

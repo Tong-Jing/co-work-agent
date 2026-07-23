@@ -4,6 +4,7 @@ import type { SkillSelector } from "../skills/skill-selector.js";
 import type { LlmMessage } from "../llm/llm-types.js";
 import type { AgentConfig } from "./agent-config.js";
 import { applyContextBudget } from "./context-budget.js";
+import type { ToolRegistry } from "../tools/tool-registry.js";
 
 // Always available regardless of skill selection, so the agent can still explore the workspace
 // even when the selected skill(s) declare a narrower requiredTools list.
@@ -14,6 +15,7 @@ export class ContextBuilder {
     private readonly memory: MemoryService,
     private readonly skills: SkillRegistry,
     private readonly skillSelector: SkillSelector,
+    private readonly tools: ToolRegistry,
   ) {}
 
   async build(
@@ -35,6 +37,8 @@ export class ContextBuilder {
       selectedSkills.length ? `Task skills:\n${selectedSkills.map((skill) => skill.instructions).join("\n\n")}` : "",
     ].filter(Boolean).join("\n\n");
 
+    const allowedTools = this.resolveAllowedTools(selectedSkills);
+    const toolDefinitions = this.tools.definitions(allowedTools);
     const unboundedMessages: LlmMessage[] = [
       { role: "system", content: context },
       ...history.map((message): LlmMessage => ({
@@ -42,9 +46,7 @@ export class ContextBuilder {
         content: message.content,
       })),
     ];
-    const { messages, omittedMessages } = applyContextBudget(unboundedMessages, config.maxContextTokens);
-
-    const allowedTools = this.resolveAllowedTools(selectedSkills);
+    const { messages, estimatedTokens, messageTokens, toolDefinitionTokens, omittedMessages } = applyContextBudget(unboundedMessages, config.maxContextTokens, toolDefinitions);
 
     return {
       messages,
@@ -53,6 +55,11 @@ export class ContextBuilder {
         memoryCount: memories.length,
         skillCount: selectedSkills.length,
         historyCount: history.length - omittedMessages,
+        estimatedTokens,
+        maxTokens: config.maxContextTokens,
+        omittedMessages,
+        messageTokens,
+        toolDefinitionTokens,
       },
     };
   }

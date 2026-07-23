@@ -21,6 +21,7 @@ export type LlmMessage =
 export interface LlmRequest {
   messages: LlmMessage[];
   tools: LlmToolDefinition[];
+  maxOutputTokens: number;
   signal: AbortSignal;
 }
 
@@ -28,4 +29,9 @@ export interface LlmResponse {
   id: string;
   content: string | null;
   toolCalls: LlmToolCall[];
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 }

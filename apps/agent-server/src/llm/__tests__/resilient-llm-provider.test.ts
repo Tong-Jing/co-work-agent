@@ -6,6 +6,7 @@ import { ResilientLlmProvider } from "../resilient-llm-provider.js";
 const request = {
   messages: [{ role: "user" as const, content: "hello" }],
   tools: [],
+  maxOutputTokens: 1_024,
   signal: new AbortController().signal,
 };
 

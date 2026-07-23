@@ -77,6 +77,7 @@ export class LongTermMemory {
           },
         ],
         tools: [],
+        maxOutputTokens: 16,
         signal: new AbortController().signal,
       });
       return (response.content ?? "").trim().toLowerCase().startsWith("yes");

@@ -31,7 +31,8 @@ export class ReactLoop {
     console.log(`[react-loop] run started runId=${runId} sessionId=${run.sessionId} initialMessages=${messages.length} allowedTools=${allowedTools ? allowedTools.join(",") : "all"}`);
     const workingMemory = new WorkingMemory();
     const conversation: LlmMessage[] = [...messages];
-    const initialCheckpoint = applyContextBudget(conversation, config.maxContextTokens);
+    const toolDefinitions = this.dependencies.tools.definitions(allowedTools);
+    const initialCheckpoint = applyContextBudget(conversation, config.maxContextTokens, toolDefinitions);
     this.dependencies.runs.saveCheckpoint(runId, 0, { messages: initialCheckpoint.messages, allowedTools });
     const runTimeoutController = new AbortController();
     const runTimeout = setTimeout(
@@ -43,22 +44,32 @@ export class ReactLoop {
     try {
       for (let iteration = 0; iteration < config.maxIterations; iteration++) {
         console.log(`[react-loop] iteration ${iteration + 1} runId=${runId}`);
-        this.dependencies.runs.emit(runId, { type: "status", label: `Reasoning (step ${iteration + 1})` });
-        const budgeted = applyContextBudget(conversation, config.maxContextTokens);
+        const budgeted = applyContextBudget(conversation, config.maxContextTokens, toolDefinitions);
+        this.dependencies.runs.emit(runId, {
+          type: "reasoning.started",
+          iteration: iteration + 1,
+          estimatedTokens: budgeted.estimatedTokens,
+          omittedMessages: budgeted.omittedMessages,
+        });
         this.dependencies.runs.saveCheckpoint(runId, iteration, { messages: budgeted.messages, allowedTools });
         if (budgeted.omittedMessages > 0) {
           console.log(`[react-loop] context compacted runId=${runId} omittedMessages=${budgeted.omittedMessages} estimatedTokens=${budgeted.estimatedTokens}`);
         }
         const response = await raceWithAbort(this.dependencies.llm.complete({
           messages: budgeted.messages,
-          tools: this.dependencies.tools.definitions(allowedTools),
+          tools: toolDefinitions,
+          maxOutputTokens: config.maxOutputTokens,
           signal: runSignal,
         }), runSignal);
         console.log(`[react-loop] llm responded runId=${runId} toolCalls=${response.toolCalls.length} hasContent=${Boolean(response.content)}`);
+        if (response.usage) {
+          console.log(`[react-loop] token usage runId=${runId} input=${response.usage.inputTokens} output=${response.usage.outputTokens} total=${response.usage.totalTokens}`);
+        }
 
         if (response.toolCalls.length === 0) {
           const content = response.content?.trim();
           if (!content) throw new Error("Agent returned no final response");
+          this.dependencies.runs.emit(runId, { type: "reasoning.completed", iteration: iteration + 1, decision: "final_response", toolCallCount: 0 });
           this.dependencies.sessions.addMessage(run.sessionId, "assistant", content, runId);
           this.dependencies.runs.emit(runId, { type: "message.delta", text: content });
           this.dependencies.runs.emit(runId, { type: "run.completed" });
@@ -69,6 +80,12 @@ export class ReactLoop {
           return;
         }
 
+        this.dependencies.runs.emit(runId, {
+          type: "reasoning.completed",
+          iteration: iteration + 1,
+          decision: "tool_calls",
+          toolCallCount: response.toolCalls.length,
+        });
         conversation.push({ role: "assistant", content: response.content, toolCalls: response.toolCalls });
         const toolResults: LlmMessage[] = [];
 
@@ -105,7 +122,7 @@ export class ReactLoop {
         }
 
         conversation.push(...toolResults);
-        const checkpoint = applyContextBudget(conversation, config.maxContextTokens);
+        const checkpoint = applyContextBudget(conversation, config.maxContextTokens, toolDefinitions);
         conversation.splice(0, conversation.length, ...checkpoint.messages);
         this.dependencies.runs.saveCheckpoint(runId, iteration + 1, { messages: checkpoint.messages, allowedTools });
       }

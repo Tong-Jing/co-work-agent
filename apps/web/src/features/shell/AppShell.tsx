@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { currentSessionIdAtom } from "../../atoms/current-session-atom";
 import { currentWorkspaceIdAtom } from "../../atoms/workspace-atom";
 import { viewAtom } from "../../atoms/view-atom";
-import { createSession, createWorkspace, listSessions, listWorkspaces } from "../../api/client";
+import { createWorkspace, listSessions, listWorkspaces } from "../../api/client";
 import {
   McpIcon,
   MemoryIcon,
@@ -59,18 +59,6 @@ export function AppShell({ children }: AppShellProps) {
     ? createWorkspaceMutation.error instanceof Error ? createWorkspaceMutation.error.message : "创建 Workspace 失败"
     : null;
 
-  const createSessionMutation = useMutation({
-    mutationFn: () => createSession(workspaceId!),
-    onSuccess: async (created) => {
-      setCurrentSessionId(created.id);
-      setView("chat");
-      await queryClient.invalidateQueries({ queryKey: ["sessions", workspaceId] });
-    },
-    onError: (error) => {
-      console.error("[shell] createSession failed", error);
-    },
-  });
-
   return (
     <main className="shell">
       <aside className="sidebar">
@@ -110,7 +98,14 @@ export function AppShell({ children }: AppShellProps) {
         </div>
 
         <nav className="nav-primary">
-          <button className="nav-item" disabled={!workspaceId} onClick={() => createSessionMutation.mutate()}>
+          <button
+            className={view === "chat" && currentSessionId === null ? "nav-item active" : "nav-item"}
+            disabled={!workspaceId}
+            onClick={() => {
+              setCurrentSessionId(null);
+              setView("chat");
+            }}
+          >
             <PlusIcon /> New chat
           </button>
           <button

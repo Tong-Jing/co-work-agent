@@ -15,16 +15,27 @@ export class Agent {
   ) {}
 
   async run(runId: string, sessionId: string, workspaceId: string, prompt: string, forcedSkillId?: string) {
-    const workspaceRoot = await this.workspaces.resolve(workspaceId);
     this.runs.emit(runId, { type: "run.started", runId });
-    const { messages, allowedTools, gathered } = await this.contextBuilder.build(this.config, sessionId, workspaceId, prompt, workspaceRoot, forcedSkillId);
-    this.runs.emit(runId, {
-      type: "context.gathered",
-      memoryCount: gathered.memoryCount,
-      skillCount: gathered.skillCount,
-      historyCount: gathered.historyCount,
-    });
-    return this.loop.run(this.config, runId, workspaceId, messages, allowedTools, workspaceRoot);
+    try {
+      const workspaceRoot = await this.workspaces.resolve(workspaceId);
+      const { messages, allowedTools, gathered } = await this.contextBuilder.build(this.config, sessionId, workspaceId, prompt, workspaceRoot, forcedSkillId);
+      this.runs.emit(runId, {
+        type: "context.gathered",
+        memoryCount: gathered.memoryCount,
+        skillCount: gathered.skillCount,
+        historyCount: gathered.historyCount,
+        estimatedTokens: gathered.estimatedTokens,
+        maxTokens: gathered.maxTokens,
+        omittedMessages: gathered.omittedMessages,
+        messageTokens: gathered.messageTokens,
+        toolDefinitionTokens: gathered.toolDefinitionTokens,
+        maxOutputTokens: this.config.maxOutputTokens,
+      });
+      return await this.loop.run(this.config, runId, workspaceId, messages, allowedTools, workspaceRoot);
+    } catch (error) {
+      this.runs.emit(runId, { type: "run.failed", message: error instanceof Error ? error.message : "Failed to build agent context" });
+      throw error;
+    }
   }
 
   async resume(runId: string, workspaceId: string, messages: LlmMessage[], allowedTools: string[] | null) {

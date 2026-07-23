@@ -40,6 +40,9 @@ describe("RunService", () => {
     restarted.subscribe(run.id, (event) => replayed.push(event.type));
 
     expect(restarted.get(run.id)).toEqual(expect.objectContaining({ status: "interrupted", lastSequence: 2 }));
+    expect(restarted.listEventsBySession(session.id)).toEqual([
+      expect.objectContaining({ runId: run.id, status: "interrupted" }),
+    ]);
     expect(replayed).toEqual(["run.started", "status"]);
     expect(restarted.cancel(run.id)).toBe(false);
   });

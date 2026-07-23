@@ -16,7 +16,11 @@ interface WorkflowRunRow {
 }
 
 export class WorkflowRunRepository {
-  constructor(private readonly database: DatabaseSync) {}
+  constructor(private readonly database: DatabaseSync) {
+    this.database
+      .prepare("UPDATE workflow_runs SET status = 'interrupted', error_message = COALESCE(error_message, 'Service restarted during workflow execution') WHERE status = 'running'")
+      .run();
+  }
 
   create(workflowId: string, sessionId: string, rootRunId: string | null = null): WorkflowRun {
     const run: WorkflowRun = {

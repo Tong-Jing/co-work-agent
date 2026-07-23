@@ -135,7 +135,7 @@ export async function buildApp(options: BuildAppOptions) {
     new ConversationMemory(sessions),
     longTermMemory,
   );
-  const contextBuilder = new ContextBuilder(memory, skills, new SkillSelector());
+  const contextBuilder = new ContextBuilder(memory, skills, new SkillSelector(), tools);
   const toolExecutor = new ToolExecutor(tools, permissionService, approvals, runs, defaultAgentConfig);
   const loop = new ReactLoop({
     llm,

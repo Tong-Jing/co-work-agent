@@ -16,7 +16,7 @@ import {
   subscribeToRun,
 } from "../../api/client";
 import { AppShell } from "../shell/AppShell";
-import { RunTimeline } from "../runs/RunTimeline";
+import { RuntimeTimelineView } from "../runs/RuntimeTimelineView";
 
 function SendIcon() {
   return (
@@ -44,6 +44,8 @@ export function ChatPage() {
   const updateConnection = useSetAtom(updateRunConnectionAtom);
   const updateRunStatus = useSetAtom(updateRunStatusAtom);
 
+  useEffect(() => setInput(""), [currentSessionId]);
+
   const session = useQuery({
     queryKey: ["session", currentSessionId],
     queryFn: () => getSession(currentSessionId!),
@@ -57,7 +59,7 @@ export function ChatPage() {
     refetchInterval: (query) => {
       if (query.state.data === null) return false;
       const status = query.state.data?.status;
-      return status === "waiting-input" || status === "completed" || status === "failed" || status === "cancelled" ? false : 3000;
+      return status === "waiting-input" || status === "completed" || status === "failed" || status === "cancelled" || status === "interrupted" ? false : 3000;
     },
   });
   const isWorkflowRunning = workflowRun.data?.status === "running";
@@ -141,21 +143,30 @@ export function ChatPage() {
             const messages = session.data?.messages ?? [];
             const persistedRuns = session.data?.runs ?? [];
             const renderedRunIds = new Set<string>();
+            const lastAssistantMessageId = messages.findLast((message) => message.role === "assistant")?.id;
             return messages.map((message) => {
               const isActiveRun = message.runId !== null && message.runId === activeRun.runId;
               const persisted = message.runId
                 ? persistedRuns.find((run) => run.runId === message.runId)
                 : undefined;
               const events = isActiveRun ? activeRun.events : persisted?.events ?? [];
+              const runStatus = isActiveRun
+                ? activeRun.status === "waiting-approval" ? "running" : activeRun.status === "idle" ? "created" : activeRun.status
+                : persisted?.status ?? "completed";
               const showTimeline = message.runId !== null && !renderedRunIds.has(message.runId) && events.length > 0;
               if (message.runId !== null) renderedRunIds.add(message.runId);
 
               return (
                 <div key={message.id}>
-                  <MessageBubble role={message.role} content={message.content} />
+                  <MessageBubble
+                    role={message.role}
+                    content={message.content}
+                    collapsible={message.role !== "assistant" || message.id !== lastAssistantMessageId}
+                  />
                   {showTimeline && (
-                    <RunTimeline
+                    <RuntimeTimelineView
                       events={events}
+                      runStatus={runStatus}
                       onDecision={(callId, decision) => void decideToolCall(callId, decision)}
                     />
                   )}
@@ -223,9 +234,9 @@ export function ChatPage() {
 
 const LONG_MESSAGE_THRESHOLD = 600;
 
-function MessageBubble({ role, content }: { role: "user" | "assistant"; content: string }) {
+function MessageBubble({ role, content, collapsible = true }: { role: "user" | "assistant"; content: string; collapsible?: boolean }) {
   const [expanded, setExpanded] = useState(false);
-  const isLong = content.length > LONG_MESSAGE_THRESHOLD;
+  const isLong = collapsible && content.length > LONG_MESSAGE_THRESHOLD;
   const displayContent = isLong && !expanded ? `${content.slice(0, LONG_MESSAGE_THRESHOLD)}…` : content;
 
   return (

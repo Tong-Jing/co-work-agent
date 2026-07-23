@@ -40,6 +40,7 @@ export class AzureOpenAiProvider implements LlmProvider {
           input,
           tools: request.tools.map(toResponseTool),
           tool_choice: "auto",
+          max_output_tokens: request.maxOutputTokens,
         },
         { signal: request.signal },
       );
@@ -53,6 +54,13 @@ export class AzureOpenAiProvider implements LlmProvider {
             ? [{ id: item.call_id, name: item.name, arguments: item.arguments }]
             : [],
         ),
+        ...(response.usage ? {
+          usage: {
+            inputTokens: response.usage.input_tokens,
+            outputTokens: response.usage.output_tokens,
+            totalTokens: response.usage.total_tokens,
+          },
+        } : {}),
       };
     } catch (error) {
       console.error("[azure-openai] responses.create failed", error);

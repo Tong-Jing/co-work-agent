@@ -90,6 +90,7 @@ describe("ReactLoop", () => {
     await loop.run(defaultAgentConfig, run.id, "workspace-1", [{ role: "user", content: "hi" }]);
 
     expect(sessions.addMessage).toHaveBeenCalledWith(run.sessionId, "assistant", "final answer", run.id);
+    expect(run.emit).toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "reasoning.completed", iteration: 1, decision: "final_response", toolCallCount: 0 }));
     expect(run.emit).toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "run.completed" }));
     // no successful tool observations => no auto memory captured
     expect(autoMemories.add).not.toHaveBeenCalled();
@@ -136,6 +137,7 @@ describe("ReactLoop", () => {
     await loop.run(defaultAgentConfig, run.id, "workspace-1", [{ role: "user", content: "run echo" }]);
 
     expect(tool.execute).toHaveBeenCalledWith({ text: "hello" }, expect.objectContaining({ workspaceRoot: "/workspace" }));
+    expect(run.emit).toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "reasoning.completed", iteration: 1, decision: "tool_calls", toolCallCount: 1 }));
     expect(run.emit).toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "tool.completed", tool: "echo" }));
     expect(run.emit).toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "run.completed" }));
     // successful tool observation => auto memory should be captured

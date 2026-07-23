@@ -164,16 +164,16 @@ export class RunService {
 
   listEventsBySession(sessionId: string) {
     const rows = this.database
-      .prepare("SELECT run_id AS runId, payload FROM run_events WHERE session_id = ? ORDER BY run_id, sequence")
-      .all(sessionId) as unknown as Array<{ runId: string; payload: string }>;
+      .prepare("SELECT run_events.run_id AS runId, agent_runs.status, run_events.payload FROM run_events JOIN agent_runs ON agent_runs.id = run_events.run_id WHERE run_events.session_id = ? ORDER BY run_events.run_id, run_events.sequence")
+      .all(sessionId) as unknown as Array<{ runId: string; status: RunStatus; payload: string }>;
 
-    const grouped = new Map<string, AgentEvent[]>();
+    const grouped = new Map<string, { status: RunStatus; events: AgentEvent[] }>();
     for (const row of rows) {
-      const events = grouped.get(row.runId) ?? [];
-      events.push(JSON.parse(row.payload) as AgentEvent);
-      grouped.set(row.runId, events);
+      const run = grouped.get(row.runId) ?? { status: row.status, events: [] };
+      run.events.push(JSON.parse(row.payload) as AgentEvent);
+      grouped.set(row.runId, run);
     }
-    return [...grouped.entries()].map(([runId, events]) => ({ runId, events }));
+    return [...grouped.entries()].map(([runId, run]) => ({ runId, ...run }));
   }
 }
 
