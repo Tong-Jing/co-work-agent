@@ -46,6 +46,22 @@ export function createDatabase(databasePath: string) {
 
     CREATE INDEX IF NOT EXISTS idx_run_events_session ON run_events(session_id, run_id, sequence);
 
+    CREATE TABLE IF NOT EXISTS agent_runs (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK (status IN ('created', 'running', 'completed', 'failed', 'cancelled', 'interrupted')),
+      iteration INTEGER NOT NULL DEFAULT 0,
+      checkpoint TEXT,
+      checkpoint_sequence INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      last_sequence INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      finished_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id, created_at);
+
     CREATE TABLE IF NOT EXISTS memories (
       id TEXT PRIMARY KEY,
       category TEXT NOT NULL,
@@ -137,6 +153,11 @@ export function createDatabase(databasePath: string) {
 
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_id, created_at);
   `);
+
+  const agentRunColumns = database.prepare("PRAGMA table_info(agent_runs)").all() as Array<{ name: string }>;
+  if (!agentRunColumns.some((column) => column.name === "checkpoint_sequence")) {
+    database.exec("ALTER TABLE agent_runs ADD COLUMN checkpoint_sequence INTEGER NOT NULL DEFAULT 0");
+  }
 
   const workspaceColumns = database.prepare("PRAGMA table_info(workspaces)").all() as Array<{ name: string }>;
   if (!workspaceColumns.some((column) => column.name === "directory_name")) {

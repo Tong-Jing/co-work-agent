@@ -125,7 +125,7 @@ export class WorkflowRunner {
     this.dependencies.sessions.addMessage(sessionId, "user", prompt, agentRun.id);
     await this.dependencies.agent.run(agentRun.id, sessionId, workspaceId, prompt, forcedSkillId);
 
-    const state = this.dependencies.runs.get(agentRun.id);
+    const state = this.dependencies.runs.getActive(agentRun.id);
     const failed = state?.events.some((event) => event.type === "run.failed" || event.type === "run.cancelled") ?? false;
     if (failed) throw new Error(`Agent step failed for run ${agentRun.id}`);
 

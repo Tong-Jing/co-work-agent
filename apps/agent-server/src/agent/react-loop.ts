@@ -8,6 +8,7 @@ import type { RunService } from "../sessions/run-service.js";
 import type { SessionService } from "../sessions/session-service.js";
 import type { ToolRegistry } from "../tools/tool-registry.js";
 import type { AgentConfig } from "./agent-config.js";
+import { applyContextBudget, truncateToolResult } from "./context-budget.js";
 
 interface ReactLoopDependencies {
   llm: LlmProvider;
@@ -24,7 +25,7 @@ export class ReactLoop {
   constructor(private readonly dependencies: ReactLoopDependencies) {}
 
   async run(config: AgentConfig, runId: string, workspaceId: string, messages: LlmMessage[], allowedTools: string[] | null = null, workspaceRoot?: string) {
-    const run = this.dependencies.runs.get(runId);
+    const run = this.dependencies.runs.getActive(runId);
     if (!run) throw new Error("Run not found");
     const activeWorkspaceRoot = workspaceRoot ?? this.dependencies.workspaceRoot;
     if (!activeWorkspaceRoot) throw new Error("Workspace root is required");
@@ -32,13 +33,20 @@ export class ReactLoop {
     console.log(`[react-loop] run started runId=${runId} sessionId=${run.sessionId} initialMessages=${messages.length} allowedTools=${allowedTools ? allowedTools.join(",") : "all"}`);
     const workingMemory = new WorkingMemory();
     const conversation: LlmMessage[] = [...messages];
+    const initialCheckpoint = applyContextBudget(conversation, config.maxContextTokens);
+    this.dependencies.runs.saveCheckpoint(runId, 0, { messages: initialCheckpoint.messages, allowedTools });
 
     try {
       for (let iteration = 0; iteration < config.maxIterations; iteration++) {
         console.log(`[react-loop] iteration ${iteration + 1} runId=${runId}`);
         this.dependencies.runs.emit(runId, { type: "status", label: `Reasoning (step ${iteration + 1})` });
+        const budgeted = applyContextBudget(conversation, config.maxContextTokens);
+        this.dependencies.runs.saveCheckpoint(runId, iteration, { messages: budgeted.messages, allowedTools });
+        if (budgeted.omittedMessages > 0) {
+          console.log(`[react-loop] context compacted runId=${runId} omittedMessages=${budgeted.omittedMessages} estimatedTokens=${budgeted.estimatedTokens}`);
+        }
         const response = await this.dependencies.llm.complete({
-          messages: conversation,
+          messages: budgeted.messages,
           tools: this.dependencies.tools.definitions(allowedTools),
           signal: run.controller.signal,
         });
@@ -51,7 +59,9 @@ export class ReactLoop {
           this.dependencies.runs.emit(runId, { type: "message.delta", text: content });
           this.dependencies.runs.emit(runId, { type: "run.completed" });
           console.log(`[react-loop] run completed runId=${runId}`);
-          await this.captureAutoMemory(workspaceId, run.sessionId, runId, workingMemory, content);
+          await this.captureAutoMemory(workspaceId, run.sessionId, runId, workingMemory, content).catch((error) => {
+            console.warn(`[react-loop] auto memory capture failed after completion runId=${runId}`, error);
+          });
           return;
         }
 
@@ -121,15 +131,17 @@ export class ReactLoop {
               signal: run.controller.signal,
             });
             console.log(`[react-loop] tool completed runId=${runId} tool=${tool.name} callId=${call.id}`);
-            toolResults.push({ role: "tool", toolCallId: call.id, content: result.content });
+            const boundedContent = truncateToolResult(result.content, config.maxToolResultTokens);
+            toolResults.push({ role: "tool", toolCallId: call.id, content: boundedContent });
             workingMemory.addObservation({ tool: tool.name, summary: result.summary, succeeded: true });
             this.dependencies.runs.emit(runId, {
               type: "tool.completed",
               callId: call.id,
               tool: tool.name,
-              result: result.content,
+              result: boundedContent,
               summary: result.summary,
             });
+            this.dependencies.runs.saveCheckpoint(runId, iteration, { messages: [...conversation, ...toolResults], allowedTools });
           } catch (error) {
             if (run.controller.signal.aborted) throw error;
 
@@ -145,10 +157,14 @@ export class ReactLoop {
               error: message,
               summary: observation,
             });
+            this.dependencies.runs.saveCheckpoint(runId, iteration, { messages: [...conversation, ...toolResults], allowedTools });
           }
         }
 
         conversation.push(...toolResults);
+        const checkpoint = applyContextBudget(conversation, config.maxContextTokens);
+        conversation.splice(0, conversation.length, ...checkpoint.messages);
+        this.dependencies.runs.saveCheckpoint(runId, iteration + 1, { messages: checkpoint.messages, allowedTools });
       }
 
       throw new Error(`Agent reached the ${config.maxIterations}-iteration limit`);

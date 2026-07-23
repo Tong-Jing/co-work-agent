@@ -3,6 +3,7 @@ import type { SkillRegistry } from "../skills/skill-registry.js";
 import type { SkillSelector } from "../skills/skill-selector.js";
 import type { LlmMessage } from "../llm/llm-types.js";
 import type { AgentConfig } from "./agent-config.js";
+import { applyContextBudget } from "./context-budget.js";
 
 // Always available regardless of skill selection, so the agent can still explore the workspace
 // even when the selected skill(s) declare a narrower requiredTools list.
@@ -34,13 +35,14 @@ export class ContextBuilder {
       selectedSkills.length ? `Task skills:\n${selectedSkills.map((skill) => skill.instructions).join("\n\n")}` : "",
     ].filter(Boolean).join("\n\n");
 
-    const messages: LlmMessage[] = [
+    const unboundedMessages: LlmMessage[] = [
       { role: "system", content: context },
       ...history.map((message): LlmMessage => ({
         role: message.role,
         content: message.content,
       })),
     ];
+    const { messages, omittedMessages } = applyContextBudget(unboundedMessages, config.maxContextTokens);
 
     const allowedTools = this.resolveAllowedTools(selectedSkills);
 
@@ -50,7 +52,7 @@ export class ContextBuilder {
       gathered: {
         memoryCount: memories.length,
         skillCount: selectedSkills.length,
-        historyCount: history.length,
+        historyCount: history.length - omittedMessages,
       },
     };
   }

@@ -6,6 +6,22 @@ import type { RunService } from "../../sessions/run-service.js";
 const terminalEvents = new Set<AgentEvent["type"]>(["run.completed", "run.cancelled", "run.failed"]);
 
 export function registerRunRoutes(app: FastifyInstance, runs: RunService, controller: RunController) {
+  app.get<{ Params: { runId: string } }>("/api/runs/:runId", async (request, reply) => {
+    const run = runs.get(request.params.runId);
+    if (!run) return reply.code(404).send({ message: "Run not found" });
+    return {
+      id: run.id,
+      sessionId: run.sessionId,
+      status: run.status,
+      iteration: "iteration" in run ? run.iteration : 0,
+      lastSequence: "lastSequence" in run ? run.lastSequence : run.sequence,
+      resumable: "checkpoint" in run
+        && run.status === "interrupted"
+        && Boolean(run.checkpoint)
+        && run.checkpointSequence === run.lastSequence,
+    };
+  });
+
   app.get<{ Params: { runId: string }; Headers: { "last-event-id"?: string } }>(
     "/api/runs/:runId/events",
     async (request, reply) => {
@@ -48,5 +64,11 @@ export function registerRunRoutes(app: FastifyInstance, runs: RunService, contro
     return controller.cancel(request.params.runId)
       ? reply.code(202).send({ accepted: true })
       : reply.code(404).send({ message: "Run not found" });
+  });
+
+  app.post<{ Params: { runId: string } }>("/api/runs/:runId/resume", async (request, reply) => {
+    return controller.resume(request.params.runId)
+      ? reply.code(202).send({ accepted: true })
+      : reply.code(409).send({ message: "Run cannot be resumed from its latest safe checkpoint" });
   });
 }

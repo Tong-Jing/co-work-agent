@@ -37,6 +37,7 @@ function makeHarness() {
       return run;
     },
     get: (id: string) => runsById.get(id),
+    getActive: (id: string) => runsById.get(id),
     emit: (id: string, event: any) => {
       const run = runsById.get(id);
       run?.events.push(event);

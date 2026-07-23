@@ -3,6 +3,7 @@ import type { AgentConfig } from "./agent-config.js";
 import type { ReactLoop } from "./react-loop.js";
 import type { RunService } from "../sessions/run-service.js";
 import type { WorkspaceService } from "../workspace/workspace-service.js";
+import type { LlmMessage } from "../llm/llm-types.js";
 
 export class Agent {
   constructor(
@@ -23,6 +24,12 @@ export class Agent {
       skillCount: gathered.skillCount,
       historyCount: gathered.historyCount,
     });
+    return this.loop.run(this.config, runId, workspaceId, messages, allowedTools, workspaceRoot);
+  }
+
+  async resume(runId: string, workspaceId: string, messages: LlmMessage[], allowedTools: string[] | null) {
+    const workspaceRoot = await this.workspaces.resolve(workspaceId);
+    this.runs.emit(runId, { type: "status", label: "Resuming interrupted run" });
     return this.loop.run(this.config, runId, workspaceId, messages, allowedTools, workspaceRoot);
   }
 }

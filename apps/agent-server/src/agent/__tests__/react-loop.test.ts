@@ -25,7 +25,9 @@ function makeRun(runId: string) {
 function makeRunsFake(run: ReturnType<typeof makeRun>) {
   return {
     get: (id: string) => (id === run.id ? run : undefined),
+    getActive: (id: string) => (id === run.id ? run : undefined),
     emit: run.emit,
+    saveCheckpoint: vi.fn(() => true),
   };
 }
 
@@ -114,6 +116,25 @@ describe("ReactLoop", () => {
     expect(run.emit).toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "run.completed" }));
     // successful tool observation => auto memory should be captured
     expect(autoMemories.add).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the run completed when automatic memory capture fails", async () => {
+    let call = 0;
+    const llm: LlmProvider = {
+      complete: vi.fn(async (): Promise<LlmResponse> => {
+        call += 1;
+        return call === 1
+          ? { id: "r1", content: null, toolCalls: [{ id: "call-1", name: "echo", arguments: JSON.stringify({ text: "hello" }) }] }
+          : { id: "r2", content: "done", toolCalls: [] };
+      }),
+    };
+    const { loop, run, autoMemories } = buildLoop({ llm });
+    autoMemories.add.mockRejectedValueOnce(new Error("memory database unavailable"));
+
+    await loop.run(defaultAgentConfig, run.id, "workspace-1", [{ role: "user", content: "run echo" }]);
+
+    expect(run.emit).toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "run.completed" }));
+    expect(run.emit).not.toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "run.failed" }));
   });
 
   it.each([
