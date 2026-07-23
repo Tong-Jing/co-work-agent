@@ -8,6 +8,8 @@ import { ApprovalService } from "../../permissions/approval-service.js";
 import type { AnyTool } from "../../tools/tool.js";
 import type { Agent } from "../../agent/agent.js";
 import type { WorkflowDefinition, WorkflowRun } from "@local-agent/contracts";
+import { ToolExecutor } from "../../tools/tool-executor.js";
+import { defaultAgentConfig } from "../../agent/agent-config.js";
 
 function makePermissionService(): PermissionService {
   const ruleRepository = { listForWorkspace: () => [] } as any;
@@ -54,6 +56,14 @@ function makeHarness() {
   };
 
   return { runs, sessions, runsById, messages };
+}
+
+function makeToolExecutor(
+  tools: ToolRegistry,
+  runs: ReturnType<typeof makeHarness>["runs"],
+  permissions = makePermissionService(),
+) {
+  return new ToolExecutor(tools, permissions, new ApprovalService(), runs as any, defaultAgentConfig);
 }
 
 function makeWorkflowStores(workflow: WorkflowDefinition, run: WorkflowRun) {
@@ -103,12 +113,12 @@ describe("WorkflowRunner", () => {
     };
     const { workflows, workflowRuns, getCurrentRun } = makeWorkflowStores(workflow, run);
 
+    const tools = new ToolRegistry();
     const runner = new WorkflowRunner({
       agent,
       workspaceRoot: "/workspace",
-      tools: new ToolRegistry(),
-      permissions: makePermissionService(),
-      approvals: new ApprovalService(),
+      tools,
+      toolExecutor: makeToolExecutor(tools, harness.runs),
       runs: harness.runs as any,
       sessions: harness.sessions as any,
       workflows: workflows as any,
@@ -157,8 +167,7 @@ describe("WorkflowRunner", () => {
       agent: { run: vi.fn() } as unknown as Agent,
       workspaceRoot: "/workspace",
       tools,
-      permissions: makePermissionService(),
-      approvals: new ApprovalService(),
+      toolExecutor: makeToolExecutor(tools, harness.runs),
       runs: harness.runs as any,
       sessions: harness.sessions as any,
       workflows: workflows as any,
@@ -198,12 +207,12 @@ describe("WorkflowRunner", () => {
     };
     const { workflows, workflowRuns, getCurrentRun } = makeWorkflowStores(workflow, run);
 
+    const tools = new ToolRegistry();
     const runner = new WorkflowRunner({
       agent: { run: vi.fn() } as unknown as Agent,
       workspaceRoot: "/workspace",
-      tools: new ToolRegistry(),
-      permissions: makePermissionService(),
-      approvals: new ApprovalService(),
+      tools,
+      toolExecutor: makeToolExecutor(tools, harness.runs),
       runs: harness.runs as any,
       sessions: harness.sessions as any,
       workflows: workflows as any,
@@ -274,8 +283,7 @@ describe("WorkflowRunner", () => {
       agent: { run: vi.fn() } as unknown as Agent,
       workspaceRoot: "/workspace",
       tools,
-      permissions,
-      approvals: new ApprovalService(),
+      toolExecutor: makeToolExecutor(tools, harness.runs, permissions),
       runs: harness.runs as any,
       sessions: harness.sessions as any,
       workflows: workflows as any,
@@ -316,12 +324,12 @@ describe("WorkflowRunner", () => {
     };
     const { workflows, workflowRuns, getCurrentRun } = makeWorkflowStores(workflow, run);
 
+    const tools = new ToolRegistry();
     const runner = new WorkflowRunner({
       agent: { run: vi.fn() } as unknown as Agent,
       workspaceRoot: "/workspace",
-      tools: new ToolRegistry(),
-      permissions: makePermissionService(),
-      approvals: new ApprovalService(),
+      tools,
+      toolExecutor: makeToolExecutor(tools, harness.runs),
       runs: harness.runs as any,
       sessions: harness.sessions as any,
       workflows: workflows as any,
@@ -371,12 +379,12 @@ describe("WorkflowRunner", () => {
     };
     const { workflows, workflowRuns, getCurrentRun } = makeWorkflowStores(workflow, run);
 
+    const tools = new ToolRegistry();
     const runner = new WorkflowRunner({
       agent,
       workspaceRoot: "/workspace",
-      tools: new ToolRegistry(),
-      permissions: makePermissionService(),
-      approvals: new ApprovalService(),
+      tools,
+      toolExecutor: makeToolExecutor(tools, harness.runs),
       runs: harness.runs as any,
       sessions: harness.sessions as any,
       workflows: workflows as any,
@@ -420,12 +428,12 @@ describe("WorkflowRunner", () => {
     };
     const { workflows, workflowRuns } = makeWorkflowStores(workflow, run);
 
+    const tools = new ToolRegistry();
     const runner = new WorkflowRunner({
       agent: { run: vi.fn() } as unknown as Agent,
       workspaceRoot: "/workspace",
-      tools: new ToolRegistry(),
-      permissions: makePermissionService(),
-      approvals: new ApprovalService(),
+      tools,
+      toolExecutor: makeToolExecutor(tools, harness.runs),
       runs: harness.runs as any,
       sessions: harness.sessions as any,
       workflows: workflows as any,

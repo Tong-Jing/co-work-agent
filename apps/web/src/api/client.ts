@@ -87,17 +87,92 @@ export async function cancelRun(runId: string) {
   await request(`/api/runs/${runId}/cancel`, { method: "POST", body: "{}" });
 }
 
-export function subscribeToRun(runId: string, onEvent: (event: AgentEvent) => void, onError: () => void) {
-  const source = new EventSource(`/api/runs/${runId}/events`);
-  source.onmessage = (message) => {
-    const parsed = agentEventSchema.safeParse(JSON.parse(message.data));
-    if (parsed.success) onEvent(parsed.data);
-  };
-  source.onerror = () => {
-    source.close();
-    onError();
-  };
-  return () => source.close();
+const runStateSchema = z.object({
+  id: z.string(),
+  status: z.enum(["created", "running", "completed", "failed", "cancelled", "interrupted"]),
+  lastSequence: z.number(),
+});
+
+export function subscribeToRun(
+  runId: string,
+  onEvent: (event: AgentEvent) => void,
+  onConnectionChange: (status: "connecting" | "connected" | "reconnecting" | "disconnected") => void,
+  onReconciled: (status: "completed" | "failed" | "cancelled" | "interrupted") => void,
+) {
+  const controller = new AbortController();
+  let cursor = 0;
+
+  void (async () => {
+    for (let attempt = 0; !controller.signal.aborted; attempt += 1) {
+      onConnectionChange(attempt === 0 ? "connecting" : "reconnecting");
+      try {
+        const response = await fetch(`/api/runs/${runId}/events`, {
+          ...(cursor > 0 ? { headers: { "Last-Event-ID": String(cursor) } } : {}),
+          signal: controller.signal,
+        });
+        if (!response.ok || !response.body) throw new Error(`Run event stream failed with ${response.status}`);
+        onConnectionChange("connected");
+        await readEventStream(response.body, (id, data) => {
+          const parsed = agentEventSchema.safeParse(JSON.parse(data));
+          if (!parsed.success) return;
+          cursor = Math.max(cursor, Number.parseInt(id, 10) || parsed.data.sequence);
+          onEvent(parsed.data);
+        }, controller.signal);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.warn(`[api] run stream disconnected runId=${runId} attempt=${attempt + 1}`, error);
+      }
+
+      const state = runStateSchema.parse(await request(`/api/runs/${runId}`));
+      if (["completed", "failed", "cancelled", "interrupted"].includes(state.status)) {
+        onReconciled(state.status as "completed" | "failed" | "cancelled" | "interrupted");
+        onConnectionChange("disconnected");
+        return;
+      }
+      if (attempt >= 5) {
+        onConnectionChange("disconnected");
+        return;
+      }
+      await abortableDelay(Math.min(1000 * 2 ** attempt, 10_000), controller.signal);
+    }
+  })().catch((error) => {
+    if (!controller.signal.aborted) {
+      console.error(`[api] run subscription failed runId=${runId}`, error);
+      onConnectionChange("disconnected");
+    }
+  });
+
+  return () => controller.abort();
+}
+
+async function readEventStream(stream: ReadableStream<Uint8Array>, onMessage: (id: string, data: string) => void, signal: AbortSignal) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (!signal.aborted) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const id = block.split("\n").find((line) => line.startsWith("id:"))?.slice(3).trim() ?? "";
+      const data = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+      if (data) onMessage(id, data);
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
+}
+
+function abortableDelay(milliseconds: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    const timer = window.setTimeout(resolve, milliseconds);
+    signal.addEventListener("abort", () => {
+      window.clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
 }
 
 export async function listMcpServers() {

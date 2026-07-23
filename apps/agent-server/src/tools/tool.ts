@@ -18,6 +18,7 @@ export interface Tool<TInput = unknown> {
   description: string;
   inputSchema: z.ZodType<TInput>;
   risk: ToolRisk;
+  idempotent?: boolean;
   source?: "local" | "mcp";
   mcpServer?: string;
   execute(input: TInput, context: ToolContext): Promise<ToolResult>;

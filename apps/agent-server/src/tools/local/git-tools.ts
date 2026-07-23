@@ -24,6 +24,7 @@ export function createGitTools(): AnyTool[] {
       description: "Show the current workspace Git status.",
       inputSchema: noInputSchema,
       risk: "low",
+      idempotent: true,
       async execute(_input, context) {
         const result = await execa("git", ["status", "--short", "--branch"], { cwd: context.workspaceRoot, cancelSignal: context.signal });
         return { content: result.stdout || "Working tree clean", summary: "Read Git status" };
@@ -34,6 +35,7 @@ export function createGitTools(): AnyTool[] {
       description: "Show unstaged and staged changes in the current workspace.",
       inputSchema: noInputSchema,
       risk: "low",
+      idempotent: true,
       async execute(_input, context) {
         const [unstaged, staged] = await Promise.all([
           execa("git", ["diff", "--"], { cwd: context.workspaceRoot, cancelSignal: context.signal }),

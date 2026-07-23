@@ -38,6 +38,10 @@ export const agentEventSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("status"), label: z.string(), sequence: z.number() }),
   z.object({ type: z.literal("message.delta"), text: z.string(), sequence: z.number() }),
+  z.object({ type: z.literal("workflow.node.started"), workflowRunId: z.string(), nodeId: z.string(), label: z.string(), sequence: z.number() }),
+  z.object({ type: z.literal("workflow.node.completed"), workflowRunId: z.string(), nodeId: z.string(), label: z.string(), sequence: z.number() }),
+  z.object({ type: z.literal("workflow.node.failed"), workflowRunId: z.string(), nodeId: z.string(), label: z.string(), message: z.string(), sequence: z.number() }),
+  z.object({ type: z.literal("workflow.node.waiting-input"), workflowRunId: z.string(), nodeId: z.string(), label: z.string(), sequence: z.number() }),
   z.object({
     type: z.literal("tool.requested"),
     callId: z.string(),
@@ -314,6 +318,7 @@ export const workflowRunSchema = z.object({
   id: z.string(),
   workflowId: z.string(),
   sessionId: z.string(),
+  rootRunId: z.string().nullable().optional(),
   status: z.enum(["running", "waiting-input", "completed", "failed", "cancelled"]),
   currentNodeId: z.string().nullable(),
   nodeStates: z.record(z.string(), workflowNodeStateSchema),
@@ -329,6 +334,7 @@ export const startWorkflowRunRequestSchema = z.object({
 export const startWorkflowRunResponseSchema = z.object({
   workflowRunId: z.string(),
   sessionId: z.string(),
+  runId: z.string(),
 });
 
 export const resumeWorkflowRunRequestSchema = z.object({

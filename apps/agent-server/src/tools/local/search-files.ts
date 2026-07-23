@@ -15,6 +15,7 @@ export function createSearchFilesTool(): Tool<z.infer<typeof inputSchema>> {
     description: "Search text in workspace files using a literal, case-insensitive query.",
     inputSchema,
     risk: "low",
+    idempotent: true,
     async execute(input, context) {
       const paths = new PathPolicy(context.workspaceRoot);
       const searchPath = path.relative(context.workspaceRoot, paths.resolve(input.path)).replaceAll("\\", "/") || ".";

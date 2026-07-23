@@ -21,6 +21,7 @@ const terminalStatuses = new Set<RunStatus>(["completed", "failed", "cancelled",
 interface RunState {
   id: string;
   sessionId: string;
+  parentRunId: string | null;
   status: RunStatus;
   controller: AbortController;
   events: AgentEvent[];
@@ -37,11 +38,12 @@ export class RunService {
       .run(new Date().toISOString(), new Date().toISOString());
   }
 
-  create(sessionId: string) {
+  create(sessionId: string, parentRunId: string | null = null) {
     const now = new Date().toISOString();
     const run: RunState = {
       id: randomUUID(),
       sessionId,
+      parentRunId,
       status: "created",
       controller: new AbortController(),
       events: [],
@@ -49,8 +51,8 @@ export class RunService {
       sequence: 0,
     };
     this.database
-      .prepare("INSERT INTO agent_runs (id, session_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
-      .run(run.id, sessionId, run.status, now, now);
+      .prepare("INSERT INTO agent_runs (id, session_id, parent_run_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(run.id, sessionId, parentRunId, run.status, now, now);
     this.#runs.set(run.id, run);
     return run;
   }
@@ -60,7 +62,7 @@ export class RunService {
     if (active) return active;
 
     const row = this.database
-      .prepare("SELECT id, session_id AS sessionId, status, iteration, checkpoint, checkpoint_sequence AS checkpointSequence, error_message AS errorMessage, last_sequence AS lastSequence, created_at AS createdAt, updated_at AS updatedAt, finished_at AS finishedAt FROM agent_runs WHERE id = ?")
+      .prepare("SELECT id, session_id AS sessionId, parent_run_id AS parentRunId, status, iteration, checkpoint, checkpoint_sequence AS checkpointSequence, error_message AS errorMessage, last_sequence AS lastSequence, created_at AS createdAt, updated_at AS updatedAt, finished_at AS finishedAt FROM agent_runs WHERE id = ?")
       .get(runId) as unknown as PersistedRun | undefined;
     return row ?? undefined;
   }
@@ -96,6 +98,9 @@ export class RunService {
     run.status = nextStatus;
     run.events.push(sequenced);
     for (const listener of run.listeners) listener(sequenced);
+    if (run.parentRunId && !terminalEventStatus[event.type as keyof typeof terminalEventStatus]) {
+      this.emit(run.parentRunId, event);
+    }
     return true;
   }
 
@@ -113,6 +118,9 @@ export class RunService {
     const run = this.#runs.get(runId);
     if (!run) return false;
     run.controller.abort(new Error("Cancelled by user"));
+    for (const child of this.#runs.values()) {
+      if (child.parentRunId === runId) child.controller.abort(new Error("Parent run cancelled"));
+    }
     return true;
   }
 
@@ -131,6 +139,7 @@ export class RunService {
     const run: RunState = {
       id: persisted.id,
       sessionId: persisted.sessionId,
+      parentRunId: persisted.parentRunId,
       status: "running",
       controller: new AbortController(),
       events: this.loadEvents(runId),
@@ -171,6 +180,7 @@ export class RunService {
 interface PersistedRun {
   id: string;
   sessionId: string;
+  parentRunId: string | null;
   status: RunStatus;
   iteration: number;
   checkpoint: string | null;

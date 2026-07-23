@@ -2,19 +2,17 @@ import type { LlmProvider } from "../llm/llm-provider.js";
 import type { LlmMessage } from "../llm/llm-types.js";
 import type { AutoMemoryRepository } from "../memory/auto-memory-repository.js";
 import { WorkingMemory } from "../memory/working-memory.js";
-import type { ApprovalService } from "../permissions/approval-service.js";
-import type { PermissionService } from "../permissions/permission-service.js";
 import type { RunService } from "../sessions/run-service.js";
 import type { SessionService } from "../sessions/session-service.js";
 import type { ToolRegistry } from "../tools/tool-registry.js";
 import type { AgentConfig } from "./agent-config.js";
-import { applyContextBudget, truncateToolResult } from "./context-budget.js";
+import { applyContextBudget } from "./context-budget.js";
+import type { ToolExecutor } from "../tools/tool-executor.js";
 
 interface ReactLoopDependencies {
   llm: LlmProvider;
   tools: ToolRegistry;
-  permissions: PermissionService;
-  approvals: ApprovalService;
+  toolExecutor: ToolExecutor;
   runs: RunService;
   sessions: SessionService;
   autoMemories: AutoMemoryRepository;
@@ -35,6 +33,12 @@ export class ReactLoop {
     const conversation: LlmMessage[] = [...messages];
     const initialCheckpoint = applyContextBudget(conversation, config.maxContextTokens);
     this.dependencies.runs.saveCheckpoint(runId, 0, { messages: initialCheckpoint.messages, allowedTools });
+    const runTimeoutController = new AbortController();
+    const runTimeout = setTimeout(
+      () => runTimeoutController.abort(new Error(`Agent run timed out after ${config.runTimeoutMs}ms`)),
+      config.runTimeoutMs,
+    );
+    const runSignal = AbortSignal.any([run.controller.signal, runTimeoutController.signal]);
 
     try {
       for (let iteration = 0; iteration < config.maxIterations; iteration++) {
@@ -45,11 +49,11 @@ export class ReactLoop {
         if (budgeted.omittedMessages > 0) {
           console.log(`[react-loop] context compacted runId=${runId} omittedMessages=${budgeted.omittedMessages} estimatedTokens=${budgeted.estimatedTokens}`);
         }
-        const response = await this.dependencies.llm.complete({
+        const response = await raceWithAbort(this.dependencies.llm.complete({
           messages: budgeted.messages,
           tools: this.dependencies.tools.definitions(allowedTools),
-          signal: run.controller.signal,
-        });
+          signal: runSignal,
+        }), runSignal);
         console.log(`[react-loop] llm responded runId=${runId} toolCalls=${response.toolCalls.length} hasContent=${Boolean(response.content)}`);
 
         if (response.toolCalls.length === 0) {
@@ -76,87 +80,26 @@ export class ReactLoop {
             continue;
           }
 
-          console.log(`[react-loop] tool requested runId=${runId} tool=${tool.name} callId=${call.id}`);
-          this.dependencies.runs.emit(runId, {
-            type: "tool.requested",
-            callId: call.id,
-            tool: tool.name,
-            source: tool.source ?? "local",
-            ...(tool.mcpServer ? { mcpServer: tool.mcpServer } : {}),
-            arguments: call.arguments,
-            summary: `Calling ${tool.name}`,
-          });
-
           try {
-            const parsedArguments: unknown = JSON.parse(call.arguments);
-            const input = tool.inputSchema.parse(parsedArguments);
-            const evaluation = this.dependencies.permissions.evaluate(tool, input, workspaceId);
-            if (evaluation.decision === "deny") {
-              console.log(`[react-loop] tool denied by rule runId=${runId} tool=${tool.name} callId=${call.id} rule=${evaluation.matchedRuleId}`);
-              const reason = `Denied by permission rule${evaluation.matchedRuleId ? ` (${evaluation.matchedRuleId})` : ""}: ${tool.name}`;
-              this.dependencies.runs.emit(runId, {
-                type: "tool.denied",
-                callId: call.id,
-                tool: tool.name,
-                reason,
-                matchedRuleId: evaluation.matchedRuleId,
-              });
-              toolResults.push({ role: "tool", toolCallId: call.id, content: reason });
-              workingMemory.addObservation({ tool: tool.name, summary: reason, succeeded: false });
-              continue;
-            }
-
-            if (evaluation.requiresApproval) {
-              console.log(`[react-loop] approval required runId=${runId} tool=${tool.name} callId=${call.id}`);
-              this.dependencies.runs.emit(runId, {
-                type: "approval.required",
-                callId: call.id,
-                tool: tool.name,
-                summary: `${tool.name}: ${JSON.stringify(input).slice(0, 1000)}`,
-                risk: this.dependencies.permissions.displayRisk(tool.risk),
-                matchedRuleId: evaluation.matchedRuleId,
-              });
-              const decision = await this.dependencies.approvals.wait(call.id, runId, run.controller.signal);
-              console.log(`[react-loop] approval decision runId=${runId} callId=${call.id} decision=${decision}`);
-              if (decision === "deny") {
-                const observation = `User denied tool execution: ${tool.name}`;
-                toolResults.push({ role: "tool", toolCallId: call.id, content: observation });
-                workingMemory.addObservation({ tool: tool.name, summary: observation, succeeded: false });
-                continue;
-              }
-            }
-
-            const result = await tool.execute(input, {
-              workspaceRoot: activeWorkspaceRoot,
-              signal: run.controller.signal,
-            });
-            console.log(`[react-loop] tool completed runId=${runId} tool=${tool.name} callId=${call.id}`);
-            const boundedContent = truncateToolResult(result.content, config.maxToolResultTokens);
-            toolResults.push({ role: "tool", toolCallId: call.id, content: boundedContent });
-            workingMemory.addObservation({ tool: tool.name, summary: result.summary, succeeded: true });
-            this.dependencies.runs.emit(runId, {
-              type: "tool.completed",
+            const outcome = await this.dependencies.toolExecutor.execute({
+              runId,
               callId: call.id,
-              tool: tool.name,
-              result: boundedContent,
-              summary: result.summary,
+              toolName: tool.name,
+              serializedInput: call.arguments,
+              workspaceId,
+              workspaceRoot: activeWorkspaceRoot,
+              signal: runSignal,
             });
+            toolResults.push({ role: "tool", toolCallId: call.id, content: outcome.content });
+            workingMemory.addObservation({ tool: tool.name, summary: outcome.summary, succeeded: outcome.status === "succeeded" });
             this.dependencies.runs.saveCheckpoint(runId, iteration, { messages: [...conversation, ...toolResults], allowedTools });
           } catch (error) {
             if (run.controller.signal.aborted) throw error;
-
             const message = error instanceof Error ? error.message : "Unknown tool error";
             const observation = `Tool ${tool.name} failed: ${message}`;
             console.warn(`[react-loop] tool failed runId=${runId} tool=${tool.name} callId=${call.id}`, error);
             toolResults.push({ role: "tool", toolCallId: call.id, content: observation });
             workingMemory.addObservation({ tool: tool.name, summary: observation, succeeded: false });
-            this.dependencies.runs.emit(runId, {
-              type: "tool.failed",
-              callId: call.id,
-              tool: tool.name,
-              error: message,
-              summary: observation,
-            });
             this.dependencies.runs.saveCheckpoint(runId, iteration, { messages: [...conversation, ...toolResults], allowedTools });
           }
         }
@@ -179,6 +122,8 @@ export class ReactLoop {
         type: "run.failed",
         message: error instanceof Error ? error.message : "Unknown agent error",
       });
+    } finally {
+      clearTimeout(runTimeout);
     }
   }
 
@@ -197,4 +142,12 @@ export class ReactLoop {
     console.log(`[react-loop] capturing auto memory runId=${runId} steps=${succeededSteps.length}`);
     await this.dependencies.autoMemories.add(workspaceId, sessionId, runId, content);
   }
+}
+
+function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })),
+  ]);
 }

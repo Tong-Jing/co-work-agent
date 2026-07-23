@@ -49,6 +49,7 @@ export function createDatabase(databasePath: string) {
     CREATE TABLE IF NOT EXISTS agent_runs (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      parent_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
       status TEXT NOT NULL CHECK (status IN ('created', 'running', 'completed', 'failed', 'cancelled', 'interrupted')),
       iteration INTEGER NOT NULL DEFAULT 0,
       checkpoint TEXT,
@@ -143,6 +144,7 @@ export function createDatabase(databasePath: string) {
       id TEXT PRIMARY KEY,
       workflow_id TEXT NOT NULL REFERENCES workflow_definitions(id) ON DELETE CASCADE,
       session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      root_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
       status TEXT NOT NULL DEFAULT 'running',
       current_node_id TEXT,
       node_states TEXT NOT NULL DEFAULT '{}',
@@ -155,8 +157,17 @@ export function createDatabase(databasePath: string) {
   `);
 
   const agentRunColumns = database.prepare("PRAGMA table_info(agent_runs)").all() as Array<{ name: string }>;
+  if (!agentRunColumns.some((column) => column.name === "parent_run_id")) {
+    database.exec("ALTER TABLE agent_runs ADD COLUMN parent_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL");
+  }
+  database.exec("CREATE INDEX IF NOT EXISTS idx_agent_runs_parent ON agent_runs(parent_run_id, created_at)");
   if (!agentRunColumns.some((column) => column.name === "checkpoint_sequence")) {
     database.exec("ALTER TABLE agent_runs ADD COLUMN checkpoint_sequence INTEGER NOT NULL DEFAULT 0");
+  }
+
+  const workflowRunColumns = database.prepare("PRAGMA table_info(workflow_runs)").all() as Array<{ name: string }>;
+  if (!workflowRunColumns.some((column) => column.name === "root_run_id")) {
+    database.exec("ALTER TABLE workflow_runs ADD COLUMN root_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL");
   }
 
   const workspaceColumns = database.prepare("PRAGMA table_info(workspaces)").all() as Array<{ name: string }>;

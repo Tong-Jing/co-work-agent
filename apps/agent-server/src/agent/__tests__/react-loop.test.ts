@@ -10,6 +10,7 @@ import type { AnyTool } from "../../tools/tool.js";
 import type { LlmProvider } from "../../llm/llm-provider.js";
 import type { LlmResponse } from "../../llm/llm-types.js";
 import { defaultAgentConfig } from "../agent-config.js";
+import { ToolExecutor } from "../../tools/tool-executor.js";
 
 function makeRun(runId: string) {
   const events: unknown[] = [];
@@ -62,12 +63,14 @@ function buildLoop(options: {
   const runs = makeRunsFake(run);
   const sessions = { addMessage: vi.fn() };
   const autoMemories = { add: vi.fn() };
+  const permissions = options.permissions ?? makePermissionService();
+  const approvals = options.approvals ?? new ApprovalService();
+  const toolExecutor = new ToolExecutor(tools, permissions, approvals, runs as any, defaultAgentConfig);
 
   const loop = new ReactLoop({
     llm: options.llm,
     tools,
-    permissions: options.permissions ?? makePermissionService(),
-    approvals: options.approvals ?? new ApprovalService(),
+    toolExecutor,
     runs: runs as any,
     sessions: sessions as any,
     autoMemories: autoMemories as any,
@@ -90,6 +93,27 @@ describe("ReactLoop", () => {
     expect(run.emit).toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "run.completed" }));
     // no successful tool observations => no auto memory captured
     expect(autoMemories.add).not.toHaveBeenCalled();
+  });
+
+  it("fails a run that exceeds its total timeout even when the provider ignores abort", async () => {
+    const llm: LlmProvider = { complete: vi.fn(() => new Promise<LlmResponse>(() => {})) };
+    const { loop, run } = buildLoop({ llm });
+
+    await loop.run({ ...defaultAgentConfig, runTimeoutMs: 20 }, run.id, "workspace-1", [{ role: "user", content: "wait" }]);
+
+    expect(run.emit).toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "run.failed", message: expect.stringContaining("timed out") }));
+  });
+
+  it("preserves user cancellation semantics instead of reporting a timeout", async () => {
+    const llm: LlmProvider = { complete: vi.fn(() => new Promise<LlmResponse>(() => {})) };
+    const { loop, run } = buildLoop({ llm });
+    const promise = loop.run({ ...defaultAgentConfig, runTimeoutMs: 1_000 }, run.id, "workspace-1", [{ role: "user", content: "wait" }]);
+    run.controller.abort(new Error("Cancelled by user"));
+
+    await promise;
+
+    expect(run.emit).toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "run.cancelled" }));
+    expect(run.emit).not.toHaveBeenCalledWith(run.id, expect.objectContaining({ type: "run.failed" }));
   });
 
   it("executes a low-risk tool without approval and feeds the result back to the LLM", async () => {

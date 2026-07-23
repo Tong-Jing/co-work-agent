@@ -15,6 +15,7 @@ export function createReadFileTool(): Tool<z.infer<typeof inputSchema>> {
     description: "Read a UTF-8 text file inside the workspace with line limits.",
     inputSchema,
     risk: "low",
+    idempotent: true,
     async execute(input, context) {
       const paths = new PathPolicy(context.workspaceRoot);
       const content = await readFile(paths.resolve(input.path), "utf8");

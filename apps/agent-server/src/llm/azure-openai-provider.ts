@@ -25,6 +25,7 @@ export class AzureOpenAiProvider implements LlmProvider {
       endpoint: options.endpoint,
       deployment: options.deployment,
       apiVersion: options.apiVersion,
+      maxRetries: 0,
     });
   }
 

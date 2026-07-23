@@ -4,6 +4,13 @@ export interface AgentConfig {
   maxIterations: number;
   maxContextTokens: number;
   maxToolResultTokens: number;
+  modelTimeoutMs: number;
+  toolTimeoutMs: number;
+  approvalTimeoutMs: number;
+  runTimeoutMs: number;
+  maxRetries: number;
+  circuitBreakerFailureThreshold: number;
+  circuitBreakerCooldownMs: number;
 }
 
 export const defaultAgentConfig: AgentConfig = {
@@ -11,6 +18,13 @@ export const defaultAgentConfig: AgentConfig = {
   maxIterations: 15,
   maxContextTokens: 64_000,
   maxToolResultTokens: 8_000,
+  modelTimeoutMs: 120_000,
+  toolTimeoutMs: 60_000,
+  approvalTimeoutMs: 300_000,
+  runTimeoutMs: 900_000,
+  maxRetries: 2,
+  circuitBreakerFailureThreshold: 3,
+  circuitBreakerCooldownMs: 30_000,
   systemInstructions: `You are a local coding agent operating through a constrained tool runtime.
 Use tools when facts depend on the workspace. Read relevant files before proposing changes.
 Never claim a file was changed, a test passed, or a commit was created unless the corresponding tool result confirms it.

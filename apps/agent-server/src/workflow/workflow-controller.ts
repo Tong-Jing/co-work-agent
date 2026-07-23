@@ -2,6 +2,7 @@ import type { WorkflowRunner } from "./workflow-runner.js";
 import type { WorkflowRepository } from "./workflow-repository.js";
 import type { WorkflowRunRepository } from "./workflow-run-repository.js";
 import type { SessionService } from "../sessions/session-service.js";
+import type { RunService } from "../sessions/run-service.js";
 
 export class WorkflowController {
   constructor(
@@ -9,6 +10,7 @@ export class WorkflowController {
     private readonly workflowRuns: WorkflowRunRepository,
     private readonly sessions: SessionService,
     private readonly runner: WorkflowRunner,
+    private readonly runs: RunService,
   ) {}
 
   start(workflowId: string, variables: Record<string, string>) {
@@ -18,14 +20,16 @@ export class WorkflowController {
     const existingRuns = this.workflowRuns.listForWorkflow(workflowId);
     const title = `Workflow: ${workflow.name} #${existingRuns.length + 1}`;
     const session = this.sessions.create(workflow.workspaceId, title);
-    const workflowRun = this.workflowRuns.create(workflowId, session.id);
+    const rootRun = this.runs.create(session.id);
+    this.runs.emit(rootRun.id, { type: "run.started", runId: rootRun.id });
+    const workflowRun = this.workflowRuns.create(workflowId, session.id, rootRun.id);
 
     console.log(`[workflow-controller] starting workflow run workflowRunId=${workflowRun.id} workflowId=${workflowId} sessionId=${session.id}`);
     void this.runner.run(workflowRun.id, workflow.workspaceId, variables).catch((error) => {
       console.error(`[workflow-controller] workflow run threw unexpectedly workflowRunId=${workflowRun.id}`, error);
     });
 
-    return { workflowRunId: workflowRun.id, sessionId: session.id };
+    return { workflowRunId: workflowRun.id, sessionId: session.id, runId: rootRun.id };
   }
 
   resume(workflowRunId: string, answer: string) {
@@ -38,5 +42,16 @@ export class WorkflowController {
     void this.runner.resume(workflowRunId, workflow.workspaceId, answer).catch((error) => {
       console.error(`[workflow-controller] workflow run resume threw unexpectedly workflowRunId=${workflowRunId}`, error);
     });
+  }
+
+  cancel(workflowRunId: string) {
+    const run = this.workflowRuns.get(workflowRunId);
+    if (!run?.rootRunId) return false;
+    const cancelled = this.runs.cancel(run.rootRunId);
+    if (run.status === "waiting-input") {
+      this.workflowRuns.update(run.id, { status: "cancelled", currentNodeId: null });
+      this.runs.emit(run.rootRunId, { type: "run.cancelled" });
+    }
+    return cancelled;
   }
 }

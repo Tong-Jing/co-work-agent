@@ -79,4 +79,18 @@ describe("RunService", () => {
     const restarted = new RunService(database);
     expect(restarted.resume(run.id)).toBeNull();
   });
+
+  it("mirrors child events to its parent and cascades cancellation", () => {
+    const { runs, session } = setup();
+    const parent = runs.create(session.id);
+    const child = runs.create(session.id, parent.id);
+    runs.emit(parent.id, { type: "run.started", runId: parent.id });
+    runs.emit(child.id, { type: "run.started", runId: child.id });
+    runs.emit(child.id, { type: "message.delta", text: "child output" });
+
+    expect(parent.events.some((event) => event.type === "message.delta" && event.text === "child output")).toBe(true);
+    expect(runs.cancel(parent.id)).toBe(true);
+    expect(parent.controller.signal.aborted).toBe(true);
+    expect(child.controller.signal.aborted).toBe(true);
+  });
 });

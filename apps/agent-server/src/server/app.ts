@@ -9,6 +9,7 @@ import { ReactLoop } from "../agent/react-loop.js";
 import { RunController } from "../agent/run-controller.js";
 import { AzureOpenAiProvider } from "../llm/azure-openai-provider.js";
 import { AzureEmbeddingProvider } from "../llm/azure-embedding-provider.js";
+import { ResilientLlmProvider } from "../llm/resilient-llm-provider.js";
 import { AutoMemoryRepository } from "../memory/auto-memory-repository.js";
 import { ConversationMemory } from "../memory/conversation-memory.js";
 import { LongTermMemory } from "../memory/long-term-memory.js";
@@ -38,6 +39,7 @@ import { createRunTaskTool } from "../tools/local/run-task.js";
 import { createSearchFilesTool } from "../tools/local/search-files.js";
 import { createWriteFileTool } from "../tools/local/write-file.js";
 import { ToolRegistry } from "../tools/tool-registry.js";
+import { ToolExecutor } from "../tools/tool-executor.js";
 import { WorkspaceService } from "../workspace/workspace-service.js";
 import { WorkspaceRepository } from "../workspace/workspace-repository.js";
 import { WorkflowRepository } from "../workflow/workflow-repository.js";
@@ -125,7 +127,7 @@ export async function buildApp(options: BuildAppOptions) {
   }
 
   const memoryRepository = new MemoryRepository(database);
-  const llm = new AzureOpenAiProvider(options.azureOpenAi);
+  const llm = new ResilientLlmProvider(new AzureOpenAiProvider(options.azureOpenAi), defaultAgentConfig);
   const embeddings = new AzureEmbeddingProvider(options.azureEmbedding);
   const longTermMemory = new LongTermMemory(memoryRepository, embeddings, llm);
   const autoMemoryRepository = new AutoMemoryRepository(database, longTermMemory, embeddings);
@@ -134,11 +136,11 @@ export async function buildApp(options: BuildAppOptions) {
     longTermMemory,
   );
   const contextBuilder = new ContextBuilder(memory, skills, new SkillSelector());
+  const toolExecutor = new ToolExecutor(tools, permissionService, approvals, runs, defaultAgentConfig);
   const loop = new ReactLoop({
     llm,
     tools,
-    permissions: permissionService,
-    approvals,
+    toolExecutor,
     runs,
     sessions,
     autoMemories: autoMemoryRepository,
@@ -152,14 +154,13 @@ export async function buildApp(options: BuildAppOptions) {
     agent,
     workspaces: workspace,
     tools,
-    permissions: permissionService,
-    approvals,
+    toolExecutor,
     runs,
     sessions,
     workflows: workflowRepository,
     workflowRuns: workflowRunRepository,
   });
-  const workflowController = new WorkflowController(workflowRepository, workflowRunRepository, sessions, workflowRunner);
+  const workflowController = new WorkflowController(workflowRepository, workflowRunRepository, sessions, workflowRunner, runs);
 
   app.addHook("onRequest", async (request) => {
     console.log(`[http] ${request.method} ${request.url}`);

@@ -3,7 +3,7 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { currentSessionIdAtom } from "../../atoms/current-session-atom";
-import { activeRunAtom, appendRunEventAtom } from "../../atoms/run-atoms";
+import { activeRunAtom, appendRunEventAtom, runContextKey, updateRunConnectionAtom, updateRunStatusAtom } from "../../atoms/run-atoms";
 import { currentWorkspaceIdAtom } from "../../atoms/workspace-atom";
 import {
   cancelRun,
@@ -41,6 +41,8 @@ export function ChatPage() {
   const [input, setInput] = useState("");
   const [activeRun, setActiveRun] = useAtom(activeRunAtom);
   const appendEvent = useSetAtom(appendRunEventAtom);
+  const updateConnection = useSetAtom(updateRunConnectionAtom);
+  const updateRunStatus = useSetAtom(updateRunStatusAtom);
 
   const session = useQuery({
     queryKey: ["session", currentSessionId],
@@ -60,17 +62,6 @@ export function ChatPage() {
   });
   const isWorkflowRunning = workflowRun.data?.status === "running";
   const isWaitingForWorkflowInput = workflowRun.data?.status === "waiting-input";
-
-  // Workflow steps run outside the SSE-driven activeRun/subscribeToRun path, so while a workflow
-  // is progressing (not yet paused for input or finished) we poll the session transcript directly
-  // to surface newly-written messages and tool timelines as they happen.
-  useEffect(() => {
-    if (!isWorkflowRunning) return;
-    const interval = setInterval(() => {
-      void queryClient.invalidateQueries({ queryKey: ["session", currentSessionId] });
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [isWorkflowRunning, currentSessionId, queryClient]);
 
   const resumeMutation = useMutation({
     mutationFn: (answer: string) => resumeWorkflowRun(workflowRun.data!.id, answer),
@@ -98,7 +89,7 @@ export function ChatPage() {
     },
     onSuccess: async ({ sessionId, runId }) => {
       setInput("");
-      setActiveRun({ runId, status: "running", response: "", events: [] });
+      setActiveRun({ runId, status: "running", connectionStatus: "connecting", response: "", events: [] });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["session", sessionId] }),
         queryClient.invalidateQueries({ queryKey: ["sessions", workspaceId] }),
@@ -111,21 +102,22 @@ export function ChatPage() {
 
   useEffect(() => {
     if (!activeRun.runId) return;
+    const key = runContextKey(workspaceId, currentSessionId);
     return subscribeToRun(
       activeRun.runId,
       (event) => {
-        appendEvent(event);
-        if (["run.completed", "run.failed", "run.cancelled"].includes(event.type)) {
+        appendEvent({ key, event });
+        if (["workflow.node.completed", "workflow.node.waiting-input", "run.completed", "run.failed", "run.cancelled"].includes(event.type)) {
           void queryClient.invalidateQueries({ queryKey: ["session", currentSessionId] });
           void queryClient.invalidateQueries({ queryKey: ["sessions", workspaceId] });
         }
       },
-      () => {
-        console.error(`[chat] SSE connection failed runId=${activeRun.runId}`);
-        setActiveRun((current) => current.status === "running" ? { ...current, status: "failed" } : current);
+      (status) => updateConnection({ key, status }),
+      (status) => {
+        updateRunStatus({ key, runId: activeRun.runId!, status: status === "interrupted" ? "failed" : status });
       },
     );
-  }, [activeRun.runId, appendEvent, currentSessionId, queryClient, setActiveRun, workspaceId]);
+  }, [activeRun.runId, appendEvent, currentSessionId, queryClient, updateConnection, updateRunStatus, workspaceId]);
 
   const isRunning = activeRun.status === "running" || activeRun.status === "waiting-approval" || isWorkflowRunning;
   const sendError = sendMutation.isError

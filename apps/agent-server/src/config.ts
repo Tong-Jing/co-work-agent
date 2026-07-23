@@ -3,8 +3,8 @@ import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 import { z } from "zod";
 
-loadEnv({ path: path.resolve(process.cwd(), "../../.env") });
-loadEnv();
+loadEnv({ path: path.resolve(process.cwd(), "../../.env"), quiet: true });
+loadEnv({ quiet: true });
 
 const configSchema = z.object({
   LLM_PROVIDER: z.literal("azure_responses").default("azure_responses"),

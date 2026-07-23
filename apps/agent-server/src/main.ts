@@ -9,12 +9,14 @@ const close = async (signal: NodeJS.Signals) => {
 	if (closing) return;
 	closing = true;
 	console.log(`[server] received signal ${signal}, shutting down`);
+	let exitCode = 0;
 	try {
 		await app.close();
 	} catch (error) {
 		console.error("[server] shutdown failed", error);
-		process.exitCode = 1;
+		exitCode = 1;
 	}
+	process.exit(exitCode);
 };
 
 process.once("SIGINT", () => void close("SIGINT"));

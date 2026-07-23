@@ -68,6 +68,12 @@ export function registerWorkflowRoutes(
     }
   });
 
+  app.post<{ Params: { runId: string } }>("/api/workflow-runs/:runId/cancel", async (request, reply) => {
+    return workflowController.cancel(request.params.runId)
+      ? reply.code(202).send({ accepted: true })
+      : reply.code(409).send({ message: "Workflow run cannot be cancelled" });
+  });
+
   app.get<{ Querystring: { sessionId?: string } }>("/api/workflow-runs/by-session", async (request, reply) => {
     if (!request.query.sessionId) return reply.code(400).send({ message: "sessionId is required" });
     return workflowRuns.getBySession(request.query.sessionId);

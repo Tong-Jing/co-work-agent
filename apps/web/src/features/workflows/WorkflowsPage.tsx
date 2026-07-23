@@ -3,6 +3,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import type { CreateWorkflowRequest, WorkflowDefinition, WorkflowNode } from "@local-agent/contracts";
 import { currentSessionIdAtom } from "../../atoms/current-session-atom";
+import { runContextKey, setRunStateAtom } from "../../atoms/run-atoms";
 import { currentWorkspaceIdAtom } from "../../atoms/workspace-atom";
 import { viewAtom } from "../../atoms/view-atom";
 import {
@@ -196,6 +197,7 @@ export function WorkflowsPage() {
   const workspaceId = useAtomValue(currentWorkspaceIdAtom);
   const setView = useSetAtom(viewAtom);
   const setCurrentSessionId = useSetAtom(currentSessionIdAtom);
+  const setRunState = useSetAtom(setRunStateAtom);
 
   const workflows = useQuery({
     queryKey: ["workflows", workspaceId],
@@ -247,7 +249,11 @@ export function WorkflowsPage() {
 
   const runMutation = useMutation({
     mutationFn: (id: string) => startWorkflowRun(id),
-    onSuccess: async ({ sessionId }) => {
+    onSuccess: async ({ sessionId, runId }) => {
+      setRunState({
+        key: runContextKey(workspaceId, sessionId),
+        state: { runId, status: "running", connectionStatus: "connecting", response: "", events: [] },
+      });
       setCurrentSessionId(sessionId);
       setView("chat");
       await queryClient.invalidateQueries({ queryKey: ["sessions", workspaceId] });

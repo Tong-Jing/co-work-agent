@@ -15,6 +15,7 @@ export function createListFilesTool(): Tool<z.infer<typeof inputSchema>> {
     description: "List files and directories inside the current workspace.",
     inputSchema,
     risk: "low",
+    idempotent: true,
     async execute(input, context) {
       const paths = new PathPolicy(context.workspaceRoot);
       const root = paths.resolve(input.path);

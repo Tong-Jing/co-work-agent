@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run build --workspace @local-agent/contracts && concurrently -n web,server -c cyan,green \"npm --prefix apps/web run dev\" \"npm --prefix apps/agent-server run dev\"",
+    "dev": "npm run build --workspace @local-agent/contracts && concurrently --kill-others -n web,server -c cyan,green \"npm --prefix apps/web run dev\" \"npm --prefix apps/agent-server run dev\"",
     "build": "npm run build --workspace @local-agent/contracts && npm run build --workspace @local-agent/server && npm run build --workspace @local-agent/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
